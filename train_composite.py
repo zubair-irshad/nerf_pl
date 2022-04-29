@@ -15,7 +15,7 @@ from models.rendering import *
 from utils import *
 
 # losses
-from losses import loss_dict
+from losses import loss_dict, get_loss
 
 # metrics
 from metrics import *
@@ -34,8 +34,7 @@ class NeRFSystem(LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.save_hyperparameters(hparams)
-
-        self.loss = loss_dict['color'](coef=1)
+        self.loss = get_loss(hparams)
 
         self.embedding_xyz = Embedding(hparams.N_emb_xyz)
         self.embedding_dir = Embedding(hparams.N_emb_dir)
@@ -52,6 +51,15 @@ class NeRFSystem(LightningModule):
                                   in_channels_dir=6*hparams.N_emb_dir+3)
             self.models['fine'] = self.nerf_fine
             load_ckpt(self.nerf_fine, hparams.weight_path, 'nerf_fine')
+
+        for object_i in range(5):
+
+            model_name = 'model_obj_' + str(int(object_i)) # .zfill(5)
+
+            self.nerf_obj = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
+                                    in_channels_dir=6*hparams.N_emb_dir+3)
+            self.models = {model_name: self.nerf_obj}
+            load_ckpt(self.nerf_obj, hparams.weight_path, model_name)
 
     def forward(self, rays):
         """Do batched inference on rays using chunk."""
@@ -87,6 +95,7 @@ class NeRFSystem(LightningModule):
         if self.hparams.dataset_name == 'llff' or self.hparams.dataset_name == 'llff_nocs':
             kwargs['spheric_poses'] = self.hparams.spheric_poses
             kwargs['val_num'] = self.hparams.num_gpus
+            kwargs['use_inst_seg'] = True
         self.train_dataset = dataset(split='train', **kwargs)
         self.val_dataset = dataset(split='val', **kwargs)
 
@@ -111,14 +120,7 @@ class NeRFSystem(LightningModule):
     
     def training_step(self, batch, batch_nb):
 
-        rgbs, valid_mask = batch['rgbs'], batch['valid_masks']
-        print("rgbs, valid_mask", rgbs.shape, valid_mask.shape)
-
-        for k,v in batch.items():
-            print("k,v", k, v.shape)
-        rays, rgbs = batch['rays'], batch['rgbs']
-
-        print("batch['rgbs']", batch['rgbs'].shape)
+        rays, rgbs, masks = batch['rays'], batch['rgbs'], batch['masks']
         results = self(rays)
         loss = self.loss(results, rgbs)
 

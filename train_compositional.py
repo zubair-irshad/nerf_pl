@@ -9,13 +9,14 @@ from torch.utils.data import DataLoader
 from datasets import dataset_dict
 # models
 from models.nerf import *
-from models.rendering import *
-
+from models.rendering_compositional import *
+from models.code_library import *
+from utils.train_helper import visualize_val_image
 # optimizer, scheduler, visualization
 from utils import *
 
 # losses
-from losses import loss_dict
+from losses import get_loss
 
 # metrics
 from metrics import *
@@ -35,31 +36,43 @@ class NeRFSystem(LightningModule):
         super().__init__()
         self.save_hyperparameters(hparams)
 
-        self.loss = loss_dict['color'](coef=1)
+        # self.loss = loss_dict['color'](coef=1)
+        self.loss = get_loss(hparams)
 
         self.embedding_xyz = Embedding(hparams.N_emb_xyz)
         self.embedding_dir = Embedding(hparams.N_emb_dir)
         self.embeddings = {'xyz': self.embedding_xyz,
                            'dir': self.embedding_dir}
 
-        self.nerf_coarse = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
-                                in_channels_dir=6*hparams.N_emb_dir+3)
+        self.nerf_coarse = ObjectNeRF(hparams)
         self.models = {'coarse': self.nerf_coarse}
-        load_ckpt(self.nerf_coarse, hparams.weight_path, 'nerf_coarse')
+        # load_ckpt(self.nerf_coarse, hparams.weight_path, 'nerf_coarse')
 
         if hparams.N_importance > 0:
-            self.nerf_fine = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
-                                  in_channels_dir=6*hparams.N_emb_dir+3)
+            self.nerf_fine = ObjectNeRF(hparams)
             self.models['fine'] = self.nerf_fine
-            load_ckpt(self.nerf_fine, hparams.weight_path, 'nerf_fine')
+            # load_ckpt(self.nerf_fine, hparams.weight_path, 'nerf_fine')
 
-    def forward(self, rays):
+        self.code_library = CodeLibrary(hparams)
+
+        self.models_to_train = [
+            self.models,
+            self.code_library,
+            self.embedding_xyz,
+        ]
+
+    def forward(self, rays, extra=dict()):
         """Do batched inference on rays using chunk."""
         B = rays.shape[0]
-        print("rays.shapeeeee", rays.shape)
         results = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
-            print("rays[i:i+self.hparams.chunk]", rays[i:i+self.hparams.chunk].shape)
+            extra_chunk = dict()
+            for k, v in extra.items():
+                if isinstance(v, torch.Tensor):
+                    extra_chunk[k] = v[i : i + self.hparams.chunk]
+                else:
+                    extra_chunk[k] = v
+
             rendered_ray_chunks = \
                 render_rays(self.models,
                             self.embeddings,
@@ -70,14 +83,14 @@ class NeRFSystem(LightningModule):
                             self.hparams.noise_std,
                             self.hparams.N_importance,
                             self.hparams.chunk, # chunk size is effective in val mode
-                            self.train_dataset.white_back)
+                            self.train_dataset.white_back,
+                            **extra_chunk)
 
             for k, v in rendered_ray_chunks.items():
                 results[k] += [v]
 
         for k, v in results.items():
             results[k] = torch.cat(v, 0)
-            print("k, v", k, results[k].shape)
         return results
 
     def setup(self, stage):
@@ -91,14 +104,14 @@ class NeRFSystem(LightningModule):
         self.val_dataset = dataset(split='val', **kwargs)
 
     def configure_optimizers(self):
-        self.optimizer = get_optimizer(self.hparams, self.models)
+        self.optimizer = get_optimizer(self.hparams, self.models_to_train)
         scheduler = get_scheduler(self.hparams, self.optimizer)
         return [self.optimizer], [scheduler]
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
                           shuffle=True,
-                          num_workers=4,
+                          num_workers=6,
                           batch_size=self.hparams.batch_size,
                           pin_memory=True)
 
@@ -110,53 +123,59 @@ class NeRFSystem(LightningModule):
                           pin_memory=True)
     
     def training_step(self, batch, batch_nb):
+        rays, rgbs = batch["rays"], batch["rgbs"]
+        rays = rays.squeeze()  # (H*W, 3)
+        rgbs = rgbs.squeeze()  # (H*W, 3)
 
-        rgbs, valid_mask = batch['rgbs'], batch['valid_masks']
-        print("rgbs, valid_mask", rgbs.shape, valid_mask.shape)
+        extra_info = dict()
+        extra_info["is_eval"] = False
+        # extra_info["instance_mask"] = batch["instance_mask"]
+        extra_info["rays_in_bbox"] = False
+        extra_info["frustum_bound_th"] = -1
+        extra_info.update(self.code_library(batch))
 
-        for k,v in batch.items():
-            print("k,v", k, v.shape)
-        rays, rgbs = batch['rays'], batch['rgbs']
-
-        print("batch['rgbs']", batch['rgbs'].shape)
-        results = self(rays)
-        loss = self.loss(results, rgbs)
+        results = self(rays, extra_info)
+        loss_sum, loss_dict = self.loss(results, batch)
 
         with torch.no_grad():
             typ = 'fine' if 'rgb_fine' in results else 'coarse'
             psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
 
         self.log('lr', get_learning_rate(self.optimizer))
-        self.log('train/loss', loss)
+        self.log('train/loss', loss_sum)
+        for k, v in loss_dict.items():
+            self.log(f"train/{k}", v)
         self.log('train/psnr', psnr_, prog_bar=True)
 
-        return loss
+        return loss_sum
 
     def validation_step(self, batch, batch_nb):
         rays, rgbs = batch['rays'], batch['rgbs']
         rays = rays.squeeze() # (H*W, 3)
         rgbs = rgbs.squeeze() # (H*W, 3)
-        results = self(rays)
-        log = {'val_loss': self.loss(results, rgbs)}
+
+        extra_info = dict()
+        extra_info["is_eval"] = True
+        extra_info["rays_in_bbox"] = False
+        extra_info["frustum_bound_th"] = -1
+        extra_info.update(self.code_library(batch))
+        results = self(rays, extra_info)
+        loss_sum, loss_dict = self.loss(results, batch)
+        for k, v in loss_dict.items():
+            self.log(f"val/{k}", v)
+        log = {"val_loss": loss_sum}
+        log.update(loss_dict)
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
     
         if batch_nb == 0:
-            W, H = self.hparams.img_wh
-            img = results[f'rgb_{typ}'].view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
-            img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
-            depth = visualize_depth(results[f'depth_{typ}'].view(H, W)) # (3, H, W)
-            # stack = torch.stack([img_gt, img, depth]) # (3, 3, H, W)
 
-            images = {"gt":img_gt, "predicted": img, "depth": depth}
+            grid_img = visualize_val_image(
+                self.hparams.img_wh, batch, results, typ=typ
+            )
             self.logger.experiment.log({
-                "Val images": [wandb.Image(img, caption=caption)
-                for caption, img in images.items()]
+                "val/GT_pred images": wandb.Image(grid_img)
             })
-
-
-            # self.logger.experiment.add_images('val/GT_pred_depth',
-            #                                    stack, self.global_step)
-
+            
         psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
         log['val_psnr'] = psnr_
 
@@ -172,17 +191,19 @@ class NeRFSystem(LightningModule):
 
 def main(hparams):
     system = NeRFSystem(hparams)
-    ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
-                              filename='{epoch:d}',
-                              monitor='val/psnr',
-                              mode='max',
-                              save_top_k=5)
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=f'ckpts/{hparams.exp_name}',
+        filename="{epoch:d}",
+        monitor="val/psnr",
+        mode="max",
+        # save_top_k=5,
+        save_top_k=-1,
+        save_last=True,
+        every_n_epochs=1,
+        save_on_train_epoch_end=True,
+    )
     pbar = TQDMProgressBar(refresh_rate=1)
-    callbacks = [ckpt_cb, pbar]
-
-    # logger = TensorBoardLogger(save_dir="logs",
-    #                            name=hparams.exp_name,
-    #                            default_hp_metric=False)
+    callbacks = [checkpoint_callback, pbar]
     wandb_logger = WandbLogger()
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
@@ -190,13 +211,14 @@ def main(hparams):
                       resume_from_checkpoint=hparams.ckpt_path,
                       logger=wandb_logger,
                       enable_model_summary=False,
-                      accelerator='auto',
+                      gpus=hparams.num_gpus,
+                      accelerator="ddp" if hparams.num_gpus > 1 else "auto",
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=1,
                       benchmark=True,
                       profiler="simple" if hparams.num_gpus==1 else None,
+                      val_check_interval=0.75,
                       strategy=DDPPlugin(find_unused_parameters=False) if hparams.num_gpus>1 else None)
-
     trainer.fit(system)
 
 

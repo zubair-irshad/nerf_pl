@@ -7,9 +7,9 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff'],
+                        choices=['blender', 'llff', 'llff_nocs'],
                         help='which dataset to train/val')
-    parser.add_argument('--img_wh', nargs="+", type=int, default=[800, 800],
+    parser.add_argument('--img_wh', nargs="+", type=int, default=[640, 480],
                         help='resolution (img_w, img_h) of the image')
     parser.add_argument('--spheric_poses', default=False, action="store_true",
                         help='whether images are taken in spheric poses (for llff)')
@@ -20,7 +20,7 @@ def get_opts():
                         help='number of frequencies in dir positional encoding')
     parser.add_argument('--N_samples', type=int, default=64,
                         help='number of coarse samples')
-    parser.add_argument('--N_importance', type=int, default=128,
+    parser.add_argument('--N_importance', type=int, default=64,
                         help='number of additional fine samples')
     parser.add_argument('--use_disp', default=False, action="store_true",
                         help='use disparity depth sampling')
@@ -28,8 +28,28 @@ def get_opts():
                         help='factor to perturb depth sampling points')
     parser.add_argument('--noise_std', type=float, default=1.0,
                         help='std dev of noise added to regularize sigma')
-        
-    parser.add_argument('--batch_size', type=int, default=1024,
+
+    # params for latent codes:
+    # 
+    parser.add_argument('--N_max_objs', type=int, default=64,
+                        help='maximum number of object instances in the dataset')
+    parser.add_argument('--N_obj_code_length', type=int, default=64,
+                        help='size of latent vector')
+    ## params for Nerf Model 
+    #(Scene branch)
+    parser.add_argument('--D', type=int, default=8)
+    parser.add_argument('--W', type=int, default=256)
+    parser.add_argument('--N_freq_xyz', type=int, default=10)
+    parser.add_argument('--N_freq_dir', type=int, default=4)
+    parser.add_argument('--skips', type=list, default=[4])
+
+    ## params for Nerf Model 
+    #(Obj branch)
+    parser.add_argument('--inst_D', type=int, default=4)
+    parser.add_argument('--inst_W', type=int, default=128)
+    parser.add_argument('--inst_skips', type=list, default=[2])
+
+    parser.add_argument('--batch_size', type=int, default=2048,
                         help='batch size')
     parser.add_argument('--chunk', type=int, default=32*1024,
                         help='chunk size to split the input to avoid OOM')
@@ -45,16 +65,24 @@ def get_opts():
     parser.add_argument('--weight_path', type=str, default=None,
                         help='pretrained model weight to load (do not load optimizers, etc)')
 
+    #### Loss params
+    parser.add_argument('--color_loss_weight', type=float, default=1.0)
+    parser.add_argument('--depth_loss_weight', type=float, default=0.1)
+    parser.add_argument('--opacity_loss_weight', type=float, default=1.0)
+    parser.add_argument('--instance_color_loss_weight', type=float, default=1.0)
+    parser.add_argument('--instance_depth_loss_weight', type=float, default=1.0)
+
+    #### object-nerf optimizer params
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimizer type',
                         choices=['sgd', 'adam', 'radam', 'ranger'])
-    parser.add_argument('--lr', type=float, default=5e-4,
+    parser.add_argument('--lr', type=float, default=1.0e-3,
                         help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9,
                         help='learning rate momentum')
     parser.add_argument('--weight_decay', type=float, default=0,
                         help='weight decay')
-    parser.add_argument('--lr_scheduler', type=str, default='steplr',
+    parser.add_argument('--lr_scheduler', type=str, default='poly',
                         help='scheduler type',
                         choices=['steplr', 'cosine', 'poly'])
     #### params for warmup, only applied when optimizer == 'sgd' or 'adam'
@@ -62,6 +90,25 @@ def get_opts():
                         help='lr is multiplied by this factor after --warmup_epochs')
     parser.add_argument('--warmup_epochs', type=int, default=0,
                         help='Gradually warm-up(increasing) learning rate in optimizer')
+
+    #### nerf_pl configs
+    # parser.add_argument('--optimizer', type=str, default='adam',
+    #                     help='optimizer type',
+    #                     choices=['sgd', 'adam', 'radam', 'ranger'])
+    # parser.add_argument('--lr', type=float, default=5e-4,
+    #                     help='learning rate')
+    # parser.add_argument('--momentum', type=float, default=0.9,
+    #                     help='learning rate momentum')
+    # parser.add_argument('--weight_decay', type=float, default=0,
+    #                     help='weight decay')
+    # parser.add_argument('--lr_scheduler', type=str, default='steplr',
+    #                     help='scheduler type',
+    #                     choices=['steplr', 'cosine', 'poly'])
+    # #### params for warmup, only applied when optimizer == 'sgd' or 'adam'
+    # parser.add_argument('--warmup_multiplier', type=float, default=1.0,
+    #                     help='lr is multiplied by this factor after --warmup_epochs')
+    # parser.add_argument('--warmup_epochs', type=int, default=0,
+    #                     help='Gradually warm-up(increasing) learning rate in optimizer')
     ###########################
     #### params for steplr ####
     parser.add_argument('--decay_step', nargs='+', type=int, default=[20],
@@ -70,7 +117,9 @@ def get_opts():
                         help='learning rate decay amount')
     ###########################
     #### params for poly ####
-    parser.add_argument('--poly_exp', type=float, default=0.9,
+    # parser.add_argument('--poly_exp', type=float, default=0.9,
+    #                     help='exponent for polynomial learning rate decay')
+    parser.add_argument('--poly_exp', type=float, default=2,
                         help='exponent for polynomial learning rate decay')
     ###########################
 

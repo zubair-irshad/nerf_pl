@@ -1,7 +1,7 @@
 import torch
 from kornia import create_meshgrid
-
-
+import numpy as np
+import matplotlib.pyplot as plt
 def get_ray_directions(H, W, focal):
     """
     Get ray directions for all pixels in camera coordinate.
@@ -92,3 +92,78 @@ def get_ndc_rays(H, W, focal, near, rays_o, rays_d):
     rays_d = torch.stack([d0, d1, d2], -1) # (B, 3)
     
     return rays_o, rays_d
+
+def world_to_ndc(rotated_pcds, W, H, focal, near):
+    
+    ox_oz = rotated_pcds[...,0] / rotated_pcds[...,2]
+    oy_oz = rotated_pcds[...,1] / rotated_pcds[...,2]
+    
+    # Projection
+    o0 = -1./(W/(2.*focal)) * ox_oz
+    o1 = -1./(H/(2.*focal)) * oy_oz
+    o2 = 1. + 2. * near / rotated_pcds[...,2]
+
+    # oz_ox = rotated_pcds[...,2] / rotated_pcds[...,0]
+    # oz_oy = rotated_pcds[...,2] / rotated_pcds[...,1]
+    # # Projection
+    # o0 = -(W/(2.*focal)) * oz_ox
+    # o1 = -(H/(2.*focal)) * oz_oy
+    # o2 = 1. + 2. * near / rotated_pcds[...,2]
+    # print("o1.shape", o1.shape)
+    rotated_pcd = np.concatenate((np.expand_dims(o0, axis=-1), np.expand_dims(o1, axis=-1), np.expand_dims(o2, axis=-1)), -1)
+    return rotated_pcd
+
+
+
+def get_rays_segmented(masks, class_ids, rays_o, rays_d, W, H, N_rays):
+    seg_mask = np.zeros([H, W])
+    for i in range(len(class_ids)):
+        seg_mask[masks[:,:,i] > 0] = np.array(class_ids)[i]
+    # print("classIds", class_ids)
+    # print("seg masks", (seg_mask>0).flatten().shape, (seg_mask>0).shape)
+    # print("(seg_mask>0).flatten()", np.count_nonzero((seg_mask>0).flatten()))
+    # print("seg mask ", np.count_nonzero(seg_mask))
+    # print("(seg_mask>0).flatten()", (seg_mask>0).flatten())
+    # print("seg mask", seg_mask)
+    # plt.imshow(seg_mask)
+    # plt.show()
+
+    rays_rgb_obj = []
+    rays_rgb_obj_dir = []
+    class_ids.sort()
+
+    select_inds = []
+    for i in range(len(class_ids)):
+        rays_on_obj = np.where(seg_mask.flatten() == class_ids[i])[0]
+        print("rays_on_obj", rays_on_obj.shape)
+        rays_on_obj = rays_on_obj[np.random.choice(rays_on_obj.shape[0], N_rays)]
+        select_inds.append(rays_on_obj)
+        obj_mask = np.zeros(len(rays_o), np.bool)
+        obj_mask[rays_on_obj] = 1
+        rays_rgb_obj.append(rays_o[obj_mask])
+        rays_rgb_obj_dir.append(rays_d[obj_mask])
+    select_inds = np.concatenate(select_inds, axis=0)
+    obj_mask = np.zeros(len(rays_o), np.bool)
+    obj_mask[select_inds] = 1
+
+    # for i in range(len(class_ids)):
+    #     rays_on_obj = np.where(seg_mask.flatten() == class_ids[i])[0]
+    #     obj_mask = np.zeros(len(rays_o), np.bool)
+    #     obj_mask[rays_on_obj] = 1
+    #     rays_rgb_obj.append(rays_o[obj_mask])
+    #     rays_rgb_obj_dir.append(rays_d[obj_mask])
+
+
+        # N_rays = min(N_rays, H * W)
+        # select_inds = []
+        # for b in range(len(class_ids)):
+        #     fg_inds = np.nonzero(seg_mask.flatten() == class_ids[b])
+        #     fg_inds = np.transpose(np.asarray(fg_inds))
+        #     fg_inds = fg_inds[np.random.choice(fg_inds.shape[0], N_rays)]
+        #     select_inds.append(fg_inds)
+        # select_inds = np.concatenate(select_inds, axis=0)
+        # j, i = select_inds[..., 0], select_inds[..., 1]
+
+        # select_inds = j * W + i
+
+    return rays_rgb_obj, rays_rgb_obj_dir, class_ids, (seg_mask>0).flatten()

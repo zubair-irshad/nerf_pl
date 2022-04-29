@@ -1,0 +1,3 @@
+[submodule "torchsearchsorted"]
+	path = torchsearchsorted
+	url = https://github.com/aliutkus/torchsearchsorted/tree/1e0ffc3e0663ffda318b4e28348efd90313d08f3
