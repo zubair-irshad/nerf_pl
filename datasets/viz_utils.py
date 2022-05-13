@@ -13,6 +13,7 @@ from .ray_utils import world_to_ndc
 import colorsys
 import os
 import trimesh
+import cv2
 
 def align_vector_to_another(a=np.array([0, 0, 1]), b=np.array([1, 0, 0])):
     """
@@ -298,12 +299,7 @@ def get_3d_bbox(size, shift=0):
 def get_pointclouds_abspose(pose, pc, is_inverse = False
 ):
     if is_inverse:
-        # pose.scale_matrix[0,0] = 1/pose.scale_matrix[0,0]
-        # pose.scale_matrix[1,1] = 1/pose.scale_matrix[1,1]
-        # pose.scale_matrix[2,2] = 1/pose.scale_matrix[2,2]
-        print("pose scale matrix", pose.scale_matrix)
         pose.scale_matrix = np.linalg.inv(pose.scale_matrix)
-        print("pose scale matrix", pose.scale_matrix)
         pose.camera_T_object = np.linalg.inv(pose.camera_T_object)
 
     print("pc", pc.shape)
@@ -797,3 +793,156 @@ def draw_saved_mesh_and_pose(abs_pose_outputs, model_lists, color_img):
     o3d.visualization.draw_geometries(rotated_meshes)
     #custom_draw_geometry_with_rotation(rotated_meshes, 5)
     return pcds
+
+
+def transform_coordinates_3d(coordinates, RT):
+  """
+  Input: 
+    coordinates: [3, N]
+    RT: [4, 4]
+  Return 
+    new_coordinates: [3, N]
+
+  """
+  assert RT.shape == (4, 4)
+  assert len(coordinates.shape) == 2
+  assert coordinates.shape[0] == 3
+  coordinates = np.vstack([coordinates, np.ones((1, coordinates.shape[1]), dtype=np.float32)])
+  new_coordinates = RT @ coordinates
+  new_coordinates = new_coordinates[:3, :] / new_coordinates[3, :]
+  assert new_coordinates.shape[0] == 3
+  return new_coordinates
+
+def calculate_2d_projections(coordinates_3d, intrinsics):
+    """
+    Input: 
+        coordinates: [3, N]
+        intrinsics: [3, 3]
+    Return 
+        projected_coordinates: [N, 2]
+    """
+    projected_coordinates = intrinsics @ coordinates_3d
+    projected_coordinates = projected_coordinates[:2, :] / projected_coordinates[2, :]
+    projected_coordinates = projected_coordinates.transpose()
+    projected_coordinates = np.array(projected_coordinates, dtype=np.int32)
+
+    return projected_coordinates
+
+def draw_bboxes_mpl_glow(img, img_pts, axes, color):
+
+    img = cv2.arrowedLine(img, tuple(axes[0]), tuple(axes[1]), (0, 0, 255), 4)
+    img = cv2.arrowedLine(img, tuple(axes[0]), tuple(axes[3]), (255, 0, 0), 4)
+    img = cv2.arrowedLine(img, tuple(axes[0]), tuple(axes[2]), (0, 255, 0), 4) ## y last
+
+    img_pts = np.int32(img_pts).reshape(-1, 2)
+    color_ground = color
+    n_lines = 8
+    diff_linewidth = 1.05
+    alpha_value = 0.03
+    for i, j in zip([4, 5, 6, 7], [5, 7, 4, 6]):
+        for n in range(1, n_lines+1):
+            plt.plot([img_pts[i][0], img_pts[j][0]], [img_pts[i][1], img_pts[j][1]], color=color_ground, linewidth=1, marker='o')
+            plt.plot([img_pts[i][0], img_pts[j][0]], [img_pts[i][1], img_pts[j][1]],
+                marker='o',
+                linewidth=1+(diff_linewidth*n),
+                alpha=alpha_value,
+                color=color_ground)
+    for i, j in zip(range(4), range(4, 8)):
+        for n in range(1, n_lines+1):
+            plt.plot([img_pts[i][0], img_pts[j][0]], [img_pts[i][1], img_pts[j][1]], color=color_ground, linewidth=1, marker='o')
+            plt.plot([img_pts[i][0], img_pts[j][0]], [img_pts[i][1], img_pts[j][1]],
+                marker='o',
+                linewidth=1+(diff_linewidth*n),
+                alpha=alpha_value,
+                color=color_ground)
+    for i, j in zip([0, 1, 2, 3], [1, 3, 0, 2]):
+        for n in range(1, n_lines+1):
+            plt.plot([img_pts[i][0], img_pts[j][0]], [img_pts[i][1], img_pts[j][1]], color=color_ground, linewidth=1, marker='o')
+            plt.plot([img_pts[i][0], img_pts[j][0]], [img_pts[i][1], img_pts[j][1]],
+                marker='o',
+                linewidth=1+(diff_linewidth*n),
+                alpha=alpha_value,
+                color=color_ground)
+    return img
+
+
+def plot_3d_bbox(object_pose_and_size, img_vis, output_path, Tc2_c1, c2w = None):
+    
+    # img_vis = img_vis[:,:,::-1]
+    box_obb = []
+    axes = []
+    colors_box = [(234, 237, 63)]
+    colors_mpl = ['#08F7FE']
+
+    flip_yz = np.eye(4)
+    flip_yz[1, 1] = -1
+    flip_yz[2, 2] = -1
+
+    # if Tc2_c1 is not None:
+    #     Tc2_c1 = np.concatenate((Tc2_c1, np.array([[0,0,0,1]])), axis=0)
+    
+    if c2w is not None:
+        c2w = np.concatenate((c2w, np.array([[0,0,0,1]])), axis=0)
+    #print("c2w", c2w.shape)
+    camera = NOCS_Real()
+    for obj_id, pose_and_size in object_pose_and_size.items():
+        size = pose_and_size['size']
+        pose = pose_and_size['pose']
+
+        # new_pose = Tc2_c1 @ np.linalg.inv(flip_yz) @ pose
+        # new_pose = convert_pose(new_pose)
+        
+        # Tc2_c1[]
+        # new_pose = Tc2_c1 @ pose
+        # pose = new_pose
+        # opengl_pose = convert_pose(Tc2_c1)
+
+        # obj2world = Tc2_c1 @ np.linalg.inv(flip_yz) @ pose
+        # pose = convert_pose(obj2world)
+
+        # # print("pose, Tc2_c1", pose, Tc2_c1)
+
+        # # pose[:3,3] += pose[:3, :3] @ Tc2_c1
+        # # pose = opengl_pose @ pose
+        # print("pose", pose)
+        #pose = Tc2_c1 @ pose
+        # pose = Tc2_c1 @ pose 
+        # print("pose after", pose)
+
+        print("================\n")
+        # print("pose", pose)
+        # pose = np.linalg.inv(np.linalg.inv(pose) @Tc2_c1)
+        # print("pose", pose)
+        box = get_3d_bbox(size)
+        unit_box_homopoints = convert_points_to_homopoints(box.T)
+        morphed_box_homopoints = pose @ unit_box_homopoints
+        morphed_box_points = convert_homopoints_to_points(morphed_box_homopoints).T
+        
+        #2D output        
+        points_obb = convert_points_to_homopoints(np.array(morphed_box_points).T)
+        points_2d_obb = project(camera.intrinsics, points_obb)
+        points_2d_obb = points_2d_obb.T
+        box_obb.append(points_2d_obb)
+        xyz_axis = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
+        scale = np.eye(4)
+        scale[:3,:3] = np.eye(3) *0.2
+        sRT = pose @ scale
+        transformed_axes = transform_coordinates_3d(xyz_axis, sRT)
+        projected_axes = calculate_2d_projections(transformed_axes, camera.intrinsics[:3,:3])
+        axes.append(projected_axes)
+
+        im = np.array(np.copy(img_vis)).copy()
+        plt.figure()
+        plt.xlim((0, im.shape[1]))
+        plt.ylim((0, im.shape[0]))
+        plt.gca().invert_yaxis()
+        plt.axis('off')
+        # for k in range(len(colors_box)):
+        #     for points_2d, axis in zip(box_obb, axes):
+        #         points_2d = np.array(points_2d)
+        #         im = draw_bboxes_mpl_glow(im, points_2d, axis, colors_mpl[k])
+        plt.imshow(im)
+        # box_plot_name = str(output_path)+'/box3d_'+plot_name+str(num)+'.png'
+        plt.savefig(output_path, bbox_inches='tight',pad_inches = 0)
+        # plt.close()
+

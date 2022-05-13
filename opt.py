@@ -11,7 +11,7 @@ def get_opts():
                         help='which dataset to train/val')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[640, 480],
                         help='resolution (img_w, img_h) of the image')
-    parser.add_argument('--spheric_poses', default=False, action="store_true",
+    parser.add_argument('--spheric_poses', default=True, action="store_true",
                         help='whether images are taken in spheric poses (for llff)')
 
     parser.add_argument('--N_emb_xyz', type=int, default=10,
@@ -53,12 +53,14 @@ def get_opts():
                         help='batch size')
     parser.add_argument('--chunk', type=int, default=32*1024,
                         help='chunk size to split the input to avoid OOM')
-    parser.add_argument('--num_epochs', type=int, default=16,
+    parser.add_argument('--num_epochs', type=int, default=80,
                         help='number of training epochs')
     parser.add_argument('--num_gpus', type=int, default=1,
                         help='number of gpus')
 
     parser.add_argument('--ckpt_path', type=str, default=None,
+                        help='pretrained checkpoint to load (including optimizers, etc)')
+    parser.add_argument('--prefix', type=str, default=None,
                         help='pretrained checkpoint to load (including optimizers, etc)')
     parser.add_argument('--prefixes_to_ignore', nargs='+', type=str, default=['loss'],
                         help='the prefixes to ignore in the checkpoint state dict')
@@ -69,7 +71,7 @@ def get_opts():
     parser.add_argument('--color_loss_weight', type=float, default=1.0)
     parser.add_argument('--depth_loss_weight', type=float, default=0.1)
     parser.add_argument('--opacity_loss_weight', type=float, default=1.0)
-    parser.add_argument('--instance_color_loss_weight', type=float, default=1.0)
+    parser.add_argument('--instance_color_loss_weight', type=float, default=50.0)
     parser.add_argument('--instance_depth_loss_weight', type=float, default=1.0)
 
     #### object-nerf optimizer params
@@ -125,5 +127,10 @@ def get_opts():
 
     parser.add_argument('--exp_name', type=str, default='exp',
                         help='experiment name')
+
+    ###########################
+
+    # parser.add_argument('--ckpt_path', type=str, default='last.ckpt',
+    #                     help='ckpt path')
 
     return parser.parse_args()

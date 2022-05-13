@@ -295,7 +295,7 @@ class LLFFDatasetNOCS(Dataset):
                                      # See https://github.com/bmild/nerf/issues/34
                 else:
                     near = self.bounds.min()
-                    far = min(8 * near, self.bounds.max()) # focus on central object only
+                    far = min(9 * near, self.bounds.max()) # focus on central object only
                 curr_frame_instance_masks = []
                 curr_frame_instance_masks_weight = []
                 curr_frame_instance_ids = []
@@ -308,7 +308,7 @@ class LLFFDatasetNOCS(Dataset):
                     instance_mask_weight = rebalance_mask(
                         masks[:, :, i_inst],
                         fg_weight=1.0,
-                        bg_weight=0.05,
+                        bg_weight=0.005,
                     )
                     instance_mask, instance_mask_weight = self.transform(instance_mask).view(
                         -1), self.transform(instance_mask_weight).view(-1)
@@ -392,10 +392,12 @@ class LLFFDatasetNOCS(Dataset):
 
             rays_o, rays_d = get_rays(self.directions, c2w)
             if not self.spheric_poses:
+                print("Using NDC, \n\n\n\n")
                 near, far = 0, 1
                 rays_o, rays_d = get_ndc_rays(self.img_wh[1], self.img_wh[0],
                                               self.focal, 1.0, rays_o, rays_d)
             else:
+                print("Not using NDC, \n\n\n\n")
                 near = self.bounds.min()
                 far = min(8 * near, self.bounds.max())
 

@@ -20,7 +20,7 @@ from losses import get_loss
 
 # metrics
 from metrics import *
-
+from dotmap import DotMap
 # pytorch-lightning
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
@@ -35,7 +35,8 @@ class NeRFSystem(LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.save_hyperparameters(hparams)
-
+        print("hparams", hparams)
+        hparams = DotMap(hparams)
         # self.loss = loss_dict['color'](coef=1)
         self.loss = get_loss(hparams)
 
@@ -212,7 +213,7 @@ def main(hparams):
                       logger=wandb_logger,
                       enable_model_summary=False,
                       gpus=hparams.num_gpus,
-                      accelerator="ddp" if hparams.num_gpus > 1 else "auto",
+                      accelerator="gpu" if hparams.num_gpus > 1 else "auto",
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=1,
                       benchmark=True,

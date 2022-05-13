@@ -86,9 +86,6 @@ class ColorLoss(nn.Module):
         self.instance_only = instance_only
 
     def forward(self, inputs, batch):
-        print("batch[rgbs]", batch["rgbs"].shape)
-        print("batch[instance_mask]", batch["instance_mask"].shape)
-        print("batch[instance_mask_weight", batch["instance_mask_weight"].shape)
         targets = batch["rgbs"].view(-1, 3)
         #mask = batch["valid_mask"].view(-1, 1).repeat(1, 3)  # (H*W, 3)
         if self.instance_only:
@@ -151,7 +148,6 @@ class TotalLoss(nn.Module):
 
         # recover loss to orig scale for comparison
         for k, v in loss_dict.items():
-            print("weight hereeeeee")
             if f"{k}_weight" in self.coeff_dict:
                 loss_dict[k] /= self.coeff_dict[f"{k}_weight"]
 

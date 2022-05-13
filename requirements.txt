@@ -20,3 +20,7 @@ networkx==2.5
 # for point cloud
 plyfile==0.7.2
 open3d==0.13.0
+
+numba
+pytransform3d
+omegaconf
