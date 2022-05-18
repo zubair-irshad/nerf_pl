@@ -174,14 +174,12 @@ def render_rays_multi(
     pose_delta=None
     # **kwargs,
 ):
-    print("N_importance", N_importance)
     embedding_xyz, embedding_dir = embeddings["xyz"], embeddings["dir"]
 
     assert len(rays_list) == len(obj_instance_ids)
-    print("len(ray_list)", len(rays_list), obj_instance_ids)
 
-    for i in range(len(rays_list)):
-        print(rays_list[i].shape)
+    # for i in range(len(rays_list)):
+    #     print(rays_list[i].shape)
     z_vals_list = []
     xyz_coarse_list = []
     dir_embedded_list = []
@@ -208,7 +206,6 @@ def render_rays_multi(
 
         # Sample depth points
         z_steps = torch.linspace(0, 1, N_samples, device=rays.device)  # (N_samples)
-        print("use_disp", use_disp)
         # use_disp = False
         if not use_disp:  # use linear sampling in depth space
             z_vals = near * (1 - z_steps) + far * z_steps
@@ -247,9 +244,7 @@ def render_rays_multi(
 
         # mute in bound samples to remove objects
         if obj_instance_ids[i] == 0 and background_skip_bbox is not None:
-            print("c2w", c2w.shape)
             in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_coarse_list[i], c2w=c2w, pose_delta=pose_delta)
-            print("in_bound_mask", in_bound_mask)
             sigmas[in_bound_mask] = -1e5
 
         rgbs_list += [rgbs]

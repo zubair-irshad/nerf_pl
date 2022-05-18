@@ -241,6 +241,8 @@ class LLFFDatasetNOCS(Dataset):
         val_idx = np.argmin(distances_from_center) # choose val image as the closest to
                                                    # center image
 
+        val_idx = 200
+        print("val_idx", val_idx)
         # Step 3: correct scale so that the nearest depth is at a little more than 1.0
         # See https://github.com/bmild/nerf/issues/34
         near_original = self.bounds.min()
@@ -343,6 +345,7 @@ class LLFFDatasetNOCS(Dataset):
 
         elif self.split == 'val':
             print('val image is', self.image_paths[val_idx])
+            print("val idx", val_idx)
             self.val_idx = val_idx
 
         else: # for testing, create a parametric rendering path
@@ -392,7 +395,7 @@ class LLFFDatasetNOCS(Dataset):
 
             rays_o, rays_d = get_rays(self.directions, c2w)
             if not self.spheric_poses:
-                print("Using NDC, \n\n\n\n")
+                print("Using NDC, \n\n")
                 near, far = 0, 1
                 rays_o, rays_d = get_ndc_rays(self.img_wh[1], self.img_wh[0],
                                               self.focal, 1.0, rays_o, rays_d)
@@ -421,7 +424,6 @@ class LLFFDatasetNOCS(Dataset):
                 depth_full_path = img_path + '_depth.png'
                 depth = load_depth(depth_full_path)
                 masks, coords, class_ids, instance_ids, model_list, bboxes = process_data(img_path, depth)
-                
                 val_inst_id = 5
                 for i_inst, instance_id in enumerate(instance_ids):
                     if instance_id != val_inst_id:
@@ -430,18 +432,18 @@ class LLFFDatasetNOCS(Dataset):
                     instance_mask_weight = rebalance_mask(
                         masks[:, :, i_inst],
                         fg_weight=1.0,
-                        bg_weight=0.05,
+                        bg_weight=0.005,
                     )
                     instance_mask, instance_mask_weight = self.transform(instance_mask).view(
                         -1), self.transform(instance_mask_weight).view(-1)
-                    instance_id = torch.ones_like(instance_mask).long() * instance_id
+                    instance_id_out = torch.ones_like(instance_mask).long() * instance_id
                     
                 sample = {
                     "rays": rays,
                     "rgbs": img,
                     "instance_mask": instance_mask,
                     "instance_mask_weight": instance_mask_weight,
-                    "instance_ids": instance_id
+                    "instance_ids": instance_id_out
                 }
         return sample
 
@@ -524,7 +526,6 @@ class LLFFDatasetNOCSOrig(Dataset):
         distances_from_center = np.linalg.norm(self.poses[..., 3], axis=1)
         val_idx = np.argmin(distances_from_center) # choose val image as the closest to
                                                    # center image
-
         # Step 3: correct scale so that the nearest depth is at a little more than 1.0
         # See https://github.com/bmild/nerf/issues/34
         near_original = self.bounds.min()

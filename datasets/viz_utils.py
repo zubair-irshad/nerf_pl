@@ -881,13 +881,21 @@ def plot_3d_bbox(object_pose_and_size, img_vis, output_path, Tc2_c1, c2w = None)
     # if Tc2_c1 is not None:
     #     Tc2_c1 = np.concatenate((Tc2_c1, np.array([[0,0,0,1]])), axis=0)
     
-    if c2w is not None:
-        c2w = np.concatenate((c2w, np.array([[0,0,0,1]])), axis=0)
+    # if c2w is not None:
+    #     c2w = np.concatenate((c2w, np.array([[0,0,0,1]])), axis=0)
     #print("c2w", c2w.shape)
     camera = NOCS_Real()
     for obj_id, pose_and_size in object_pose_and_size.items():
         size = pose_and_size['size']
         pose = pose_and_size['pose']
+        # print("c2w", c2w.shape)
+        # print("pose", pose, pose.shape)
+        # axis_align_mat = pose*4.4
+        # axis_align_mat[3,3] = 1
+        # obj2world = c2w @ np.linalg.inv(flip_yz) @ axis_align_mat
+        # pose = obj2world/4.4
+        # pose[3,3] = 1
+        # print("pose", pose, pose.shape)
 
         # new_pose = Tc2_c1 @ np.linalg.inv(flip_yz) @ pose
         # new_pose = convert_pose(new_pose)
@@ -909,7 +917,7 @@ def plot_3d_bbox(object_pose_and_size, img_vis, output_path, Tc2_c1, c2w = None)
         # pose = Tc2_c1 @ pose 
         # print("pose after", pose)
 
-        print("================\n")
+        # print("================\n")
         # print("pose", pose)
         # pose = np.linalg.inv(np.linalg.inv(pose) @Tc2_c1)
         # print("pose", pose)

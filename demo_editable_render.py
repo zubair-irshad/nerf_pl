@@ -29,27 +29,19 @@ def center_pose_from_avg(pose_avg, pose):
 def move_camera_pose(pose, progress):
     # control the camera move (spiral pose)
     t = progress * np.pi * 4
-    radii = 0.1
+    radii = 0.05
     center = np.array([np.cos(t), -np.sin(t), -np.sin(0.5 * t)]) * radii
     Tc2_c1 = np.eye(4)
     Tc2_c1[:3, 3] = pose[:3, :3].copy() @ center
-    print("Tc2_c1", Tc2_c1)
-    print("pose before camera movement", pose)
 
     pose_transformed = pose.copy()
     pose_transformed[:3, 3] += pose_transformed[:3, :3] @ center
-    print("pose after camera movement", pose_transformed)
-    # Tc2_c1 = np.eye(4)
-    # Tc2_c1[:3, 3] = pose[:3, :3] @ center
-    # print("Tc2_c1", Tc2_c1)
-
-    # print("Tc2_c1 from inv", np.linalg.inv())
 
 
     return pose_transformed, Tc2_c1
 
 
-def get_pure_rotation(progress_11: float, max_angle: float = 10):
+def get_pure_rotation(progress_11: float, max_angle: float = 20):
     trans_pose = np.eye(4)
     trans_pose[:3, :3] = Rotation.from_euler(
         "z", progress_11 * max_angle, degrees=True
@@ -70,20 +62,20 @@ def get_transformation_with_duplication_offset(progress, duplication_id: int):
 
 
 def main(hparams):
-    render_path = f"debug/rendered_view/render_{hparams.prefix}/"
+    render_path = f"debug/rendered_view/{hparams.prefix}/"
     os.makedirs(render_path, exist_ok=True)
     # intialize room optimizer
     renderer = EditableRenderer(hparams=hparams)
     poses_avg, scale_factor, focal = renderer.read_meta()
-    obj_id_list = [1,2,3,4,5]  # e.g. [4, 6]
+    obj_id_list = [1,2,3,4,5,6]  # e.g. [4, 6]
     W, H = hparams.img_wh
     total_frames = 50
-    pose_frame_idx = 23
+    pose_frame_idx = 350
     edit_type = 'pure_rotation'
 
     for obj_id in obj_id_list:
         renderer.initialize_object_bbox(hparams, obj_id, pose_frame_idx, poses_avg.copy(), scale_factor)
-    renderer.remove_scene_object_by_ids(hparams, obj_id_list, pose_frame_idx, poses_avg, scale_factor)
+    #renderer.remove_scene_object_by_ids(hparams, obj_id_list, pose_frame_idx, poses_avg, scale_factor)
 
     for idx in tqdm(range(total_frames)):
     #     # an example to set object pose
@@ -122,10 +114,8 @@ def main(hparams):
         # )
 
         # render edited scene
-        print("scale_factor", scale_factor)
-        print("poses_avg", poses_avg)
-        c2w = renderer.get_camera_pose_by_frame_idx(pose_frame_idx).copy()
-        c2w = center_pose_from_avg(poses_avg.copy(), c2w)
+        # c2w = renderer.get_camera_pose_by_frame_idx(pose_frame_idx).copy()
+        # c2w = center_pose_from_avg(poses_avg.copy(), c2w)
         # c2w[:, 3] /= scale_factor
 
 
@@ -134,40 +124,25 @@ def main(hparams):
                 idx / total_frames,
             )
 
+        Twc = center_pose_from_avg(poses_avg.copy(), camera_pose_Twc.copy())
+        Twc = Twc/scale_factor
 
-        c2w_after = camera_pose_Twc.copy()
-        c2w_after = center_pose_from_avg(poses_avg.copy(), c2w_after)
-        #c2w_after[:, 3] /= scale_factor
 
-        # Tc2_c1_scaled = c2w_after @ np.linalg.inv(c2w)
-        Tc2_c1_scaled = np.linalg.inv(c2w_after) @ c2w
-        Tc2_c1_scaled[..., 3] /= scale_factor
-        Tc2_c1_scaled[3,3] = 1
+        # c2w_after = camera_pose_Twc.copy()
+        # c2w_after = center_pose_from_avg(poses_avg.copy(), c2w_after)
+        # Tc2_c1_scaled = np.linalg.inv(c2w_after) @ c2w
+        # Tc2_c1_scaled[..., 3] /= scale_factor
+        # Tc2_c1_scaled[3,3] = 1
+        # Tc2_c1[..., 3] /= scale_factor
+        # Tc2_c1[3,3] = 1
 
-        # Tc2_c1_scaled[1, 3] *= -1
-        # Tc2_c1_scaled[2, 3] *= -1
-        
-        # print("c2w", c2w)
-        # print("c2w_after", c2w_after)
-        # print("Tc2_c1_scaled", Tc2_c1_scaled)
-
-        # print("Tc2_c1", Tc2_c1)
-        Tc2_c1[..., 3] /= scale_factor
-        Tc2_c1[3,3] = 1
-
-        print("Tc2_c1", Tc2_c1)
-        print("Tc2_c1_scaled", Tc2_c1_scaled)
-        # print("Tc2_c1", Tc2_c1)
-        # print("============\n")
-        print("renderer.get_camera_pose_by_frame_idx(pose_frame_idx)", renderer.get_camera_pose_by_frame_idx(pose_frame_idx).copy())
-        print("focal", focal)
         results, object_pose_and_size = renderer.render_edit(
             h=H,
             w=W,
             camera_pose_Twc=camera_pose_Twc,
             camera_pose_Twc_origin = renderer.get_camera_pose_by_frame_idx(pose_frame_idx).copy(),
             focal = focal,
-            pose_delta = Tc2_c1_scaled
+            pose_delta = Tc2_c1
         )
         image_out_path = f"{render_path}/render_{idx:04d}.png"
         # image_np = results["rgb_fine"].view(H, W, 3).detach().cpu().numpy()
@@ -175,13 +150,7 @@ def main(hparams):
         img_pred = np.clip(results["rgb_fine"].view(H, W, 3).detach().cpu().numpy(), 0, 1)
         image_pred = (img_pred * 255).astype(np.uint8)
 
-        # Tc2_c1[..., 3] /= scale_factor
-        # c2w_vis = c2w.copy()
-        # print("c2w_vis", c2w_vis, c2w_vis.shape)
-        # c2w_vis[..., 3] /= scale_factor
-        # # c2w_vis[3,3] = 1
-        # print("c2w_vis", c2w_vis.shape)
-        plot_3d_bbox(object_pose_and_size, image_pred, image_out_path, Tc2_c1_scaled, renderer.get_camera_pose_by_frame_idx(pose_frame_idx).copy())
+        plot_3d_bbox(object_pose_and_size, image_pred, image_out_path, Tc2_c1, Twc)
         # imageio.imwrite(image_out_path, (image_np * 255).astype(np.uint8))
         # imageio.imsave(image_out_path, img_pred)
 

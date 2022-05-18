@@ -99,7 +99,6 @@ def inference_model(
     dir_embedded_ = repeat(
         dir_embedded, "n1 1 c -> (n1 n2) c", n2=N_samples_
     )  # (N_rays*N_samples_, embed_dir_channels)
-
     obj_codes = repeat(embedding_instance, "n1 c -> (n1 n2) c", n2=N_samples_)
 
     # Perform model inference to get rgb and raw sigma

@@ -143,19 +143,14 @@ class EditableRenderer:
         H = camdata[1].height
         W = camdata[1].width
         self.focal = camdata[1].params[0] * self.img_wh[0]/W
-        print("self.focal", self.focal)
 
         # Step 2: correct poses
         # read extrinsics (of successfully reconstructed images)
         imdata = read_images_binary(os.path.join(self.root_dir, 'sparse/0/images.bin'))
         perm = np.argsort([imdata[k].name for k in imdata])
-
-        print("perm", perm)
         # read successfully reconstructed images and ignore others
         self.image_paths = [os.path.join(self.root_dir, 'images', name)
                             for name in sorted([imdata[k].name for k in imdata])]
-
-        print("image_paths", self.image_paths)
         w2c_mats = []
         bottom = np.array([0, 0, 0, 1.]).reshape(1, 4)
         for k in imdata:
@@ -318,21 +313,16 @@ class EditableRenderer:
         camera_pose_Twc_origin : np.ndarray,
         focal,
         pose_delta = None,
-        show_progress: bool = False,
+        show_progress: bool = True,
         render_bg_only: bool = False,
-        render_obj_only: bool = False,
-        white_back: bool = False,
+        render_obj_only: bool = True,
+        white_back: bool = True,
     ):
         # focal = (w / 2) / np.tan((fovx_deg / 2) / (180 / np.pi))
         directions = get_ray_directions(h, w, focal).cuda()  # (h, w, 3)
-
-        print("camera_pose_Twc before avg", camera_pose_Twc)
         Twc = center_pose_from_avg(self.pose_avg, camera_pose_Twc)
 
         Twc_origin = center_pose_from_avg(self.pose_avg, camera_pose_Twc_origin)
-
-        print("camera_pose_Twc after avg", Twc)
-        print("pose_delta", pose_delta.shape)
         # pose_delta_T = center_pose_from_avg(self.pose_avg, pose_delta)
         # pose_delta_T = pose_delta
 
@@ -349,21 +339,15 @@ class EditableRenderer:
         # only render objects
         if render_obj_only:
             self.active_object_ids.remove(0)
-
-        print("active_object_ids", self.active_object_ids)
         object_pose_and_size = {}
         processed_obj_id = []
-        
-        print("self.object_bbox_ray_helpers", self.object_bbox_ray_helpers)
-        all_obj_ids = [1,2,3,4,5]
+        all_obj_ids = [1,2,3,4,5,6]
         for obj_id in all_obj_ids:
             object_pose_and_size[str(obj_id)] = {}
             object_pose_and_size[str(obj_id)]['size'] = self.get_object_bbox_helper(str(obj_id)).size
             object_pose_and_size[str(obj_id)]['pose'] = self.get_object_bbox_helper(str(obj_id)).axis_align_mat
 
         for obj_id in self.active_object_ids:
-            # count object duplication
-            print("obj_id", obj_id, "==================\n\n\n")
             obj_duplication_cnt = np.sum(np.array(processed_obj_id) == obj_id)
             if obj_id == 0:
                 # for scene, transform is Identity
@@ -388,13 +372,11 @@ class EditableRenderer:
                 ).get_world_to_object_transform(c2w)
 
                 # get_camera_to_object_transform
-                print("object_pose", object_pose)
                 # # transform object into center, then apply user-specific object poses
                 transform = np.linalg.inv(Tow_orig) @ object_pose @ Tow_orig
                 # # for X_c = Tcw * X_w, when we applying transformation on X_w,
                 # # it equals to Tcw * (transform * X_w). So, Tow = inv(transform) * Twc
                 Tow = np.linalg.inv(transform)
-                print("Tow", Tow)
                 # # Tow = np.linalg.inv(Tow)  # this move obejct to center
                 # Tow = np.eye(4)
 
@@ -403,15 +385,11 @@ class EditableRenderer:
 
             Toc_origin = Tow @ Twc_origin
             # resize to NeRF scale
-
-            print("Toc before scale", Toc, Toc.shape)
             Toc[:, 3] /= self.scale_factor
 
             Toc_origin[:, 3] /= self.scale_factor
-            print("Toc after scale", Toc)
             Toc = torch.from_numpy(Toc).float().cuda()[:3, :4]
             Toc_origin = torch.from_numpy(Toc_origin).float().cuda()[:3, :4]
-            print("Toc", Toc)
 
             # print("pose_delta_T",pose_delta_T,  pose_delta_T.shape)
             # pose_delta_T_scaled = pose_delta_T
@@ -432,7 +410,6 @@ class EditableRenderer:
             
             
             rays_o, rays_d = get_rays(directions, Toc)
-            print("Toc_origin", Toc_origin)
             rays = self.generate_rays(obj_id, rays_o, rays_d, Toc, pose_delta.copy())
             # light anchor should also be transformed
             #Tow = torch.from_numpy(Tow).float()
@@ -440,7 +417,6 @@ class EditableRenderer:
             obj_ids.append(obj_id)
             rays_list.append(rays)
 
-        print("Toc", Toc, Toc.shape)
         # split chunk
         B = rays_list[0].shape[0]
         chunk = self.hparams.chunk

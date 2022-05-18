@@ -117,7 +117,6 @@ class BBoxRayHelper:
         flip_yz[2, 2] = -1
 
         for i in range(len(instance_ids)):
-            print("self.instance_id", self.instance_id)
             if instance_ids[i] != self.instance_id:
                 continue
             # obj2world = np.linalg.inv(flip_yz) @ abs_poses[i].camera_T_object
@@ -135,8 +134,6 @@ class BBoxRayHelper:
             # self.axis_align_mat = self.convert_pose(self.axis_align_mat)
             # self.axis_align_mat = np.linalg.inv(self.axis_align_mat)
             self.bbox_bounds = np.array([-size / 2, size / 2])
-            print("bbox_bounds", self.bbox_bounds)
-            print("+++++++++++++++++++++++++++++++++++++++++\n\n\n\n\n")
             self.size = size
             break
         self.pose_avg = np.eye(4)
@@ -176,8 +173,6 @@ class BBoxRayHelper:
 
         j = read_json(self.conf["bbox_dir"])
         labels = j["labels"]
-
-        # print(len(labels), labels)
         for l in labels:
             if int(l["id"]) != self.instance_id:
                 continue
@@ -229,7 +224,6 @@ class BBoxRayHelper:
                 rays_o.detach().cpu().numpy(),
                 rays_d.detach().cpu().numpy(),
             )
-        print("c2w", c2w.shape)
         # bottom = torch.tensor([0,0,0,1]).unsqueeze(0).cuda()
         if c2w is not None:
             c2w = np.concatenate((c2w.cpu().numpy(), np.array([[0,0,0,1]])), axis=0)
@@ -240,8 +234,6 @@ class BBoxRayHelper:
         flip_yz = np.eye(4)
         flip_yz[1, 1] = -1
         flip_yz[2, 2] = -1
-
-        print("c2w", c2w.shape)
         # obj2world = c2w @ np.linalg.inv(flip_yz) @ self.axis_align_mat
 
         # change pose using camera transformation
@@ -266,8 +258,6 @@ class BBoxRayHelper:
         # print("self.axis_align_mat", pose_delta @ self.axis_align_mat)
         # # T_c20 = self.convert_pose(T_c20)
 
-        print("self.axis_align_mat", self.axis_align_mat.copy())
-
         # print("convert_pose(pose_delta)", self.convert_pose(pose_delta))
         # T_c20 = self.convert_pose(pose_delta) @ self.axis_align_mat
         # #T_c20 = self.convert_pose(T_c20)
@@ -281,33 +271,25 @@ class BBoxRayHelper:
         # print("pose_delta", pose_delta)
         # T_c2o = pose_delta @ self.axis_align_mat.copy()
         # print("T_c2o", T_c2o)
-        
-        print("pose_delta", pose_delta)
         # T_c2o = pose_delta @ np.linalg.inv(flip_yz) @ self.axis_align_mat.copy()
         # print("T_c2o before pose convert", T_c2o)
         
         # T_c2o = self.convert_pose(T_c2o)
 
-        # in opencv
-        T_c2o = pose_delta @ self.axis_align_mat.copy()
-        print("T_c2o after convert", T_c2o, T_c2o.shape)
-        #in opencv
+        # # in opencv
+        # T_c2o = pose_delta @ self.axis_align_mat.copy()
+        # #in opencv
 
-        obj2world_1 = c2w @ np.linalg.inv(flip_yz) @ T_c2o
-        obj2world_1 = self.convert_pose(obj2world_1)
+        # obj2world_1 = c2w @ np.linalg.inv(flip_yz) @ T_c2o
+        # obj2world_1 = self.convert_pose(obj2world_1)
 
-        print("obj2world", obj2world_1)
-
-        print("c2w", c2w)
-
-        axis_align_mat = self.axis_align_mat.copy()*4.5
+        axis_align_mat = self.axis_align_mat.copy()*4.4
         axis_align_mat[3,3] = 1
         obj2world = c2w @ np.linalg.inv(flip_yz) @ axis_align_mat
         
         #obj2world = c2w @ np.linalg.inv(flip_yz) @ self.axis_align_mat.copy() 
         #obj2world = pose_delta @ np.linalg.inv(flip_yz) @ self.axis_align_mat 
         obj2world = self.convert_pose(obj2world)
-        print("obj2world_1", obj2world)
 
         # now move the bounding boxes
 
@@ -350,9 +332,7 @@ class BBoxRayHelper:
         flip_yz[1, 1] = -1
         flip_yz[2, 2] = -1
 
-        print("c2w", c2w.shape)
-
-        axis_align_mat = self.axis_align_mat.copy()*4.2
+        axis_align_mat = self.axis_align_mat.copy()*4.4
         axis_align_mat[3,3] = 1
         obj2world = c2w @ np.linalg.inv(flip_yz) @ axis_align_mat
 
@@ -377,16 +357,13 @@ class BBoxRayHelper:
         rays_o_bbox, rays_d_bbox = self.transform_rays_to_bbox_coordinates_nocs(
             rays_o, rays_d, scale_factor, c2w, pose_delta
         )
-
-        print("bbox_bounds", self.bbox_bounds)
         bbox_bounds = copy.deepcopy(self.bbox_bounds)
         # if bbox_enlarge > 0:
-        bbox_enlarge = 0.03
+        bbox_enlarge = 0.04
         bbox_z_min_orig = bbox_bounds[0][2]
         bbox_bounds[0] -= bbox_enlarge
         bbox_bounds[1] += bbox_enlarge
         bbox_bounds[0][2] = bbox_z_min_orig
-        print("bbox_bounds", bbox_bounds)
 
         bbox_mask, batch_near, batch_far = bbox_intersection_batch(
             bbox_bounds, rays_o_bbox, rays_d_bbox
@@ -418,11 +395,9 @@ class BBoxRayHelper:
         """
         if scale_factor is None:
             scale_factor = self.scale_factor
-        print("c2w heree", c2w.shape)
         xyz = self.transform_xyz_to_bbox_coordinates(xyz, scale_factor, c2w, pose_delta)
         xyz = torch.from_numpy(xyz).float().cuda()
         bbox_bounds = copy.deepcopy(self.bbox_bounds)
-        print("xyz in bounds func", xyz, bbox_bounds)
 
         bbox_enlarge = 0.04
         bbox_z_min_orig = bbox_bounds[0][2]
@@ -463,7 +438,6 @@ def check_in_any_boxes(
         xyz = xyz.view(-1, 3)
         need_reshape = True
     in_bounds = torch.zeros_like(xyz[:, 0]).bool()
-    print("c2w in any box", c2w.shape)
     for k, box in boxes.items():
         in_bounds = torch.logical_or(
             box.check_xyz_in_bounds(xyz, scale_factor, bbox_enlarge, c2w, pose_delta), in_bounds

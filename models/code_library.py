@@ -1,7 +1,8 @@
 import torch
 from torch import nn
-from omegaconf import OmegaConf
-
+import sys
+sys.path.append("./")
+from opt import get_opts
 class CodeLibrary(nn.Module):
     """
     Store various codes.
@@ -20,6 +21,11 @@ class CodeLibrary(nn.Module):
 
         # if 'frame_idx' in inputs:
         #     ret_dict['embedding_a'] = self.embedding_a(inputs['frame_idx'].squeeze())
+        # print("inputs[instance_ids].squeeze()", inputs["instance_ids"].squeeze().shape)
+        # print("inputs[instance_ids].squeeze()", inputs["instance_ids"].shape)
+        
+        # print("self.embedding_instance(inputs[instance_ids].squeeze()", self.embedding_instance(
+        #         inputs["instance_ids"].squeeze().shape))
         if "instance_ids" in inputs:
             ret_dict["embedding_instance"] = self.embedding_instance(
                 inputs["instance_ids"].squeeze()
@@ -28,19 +34,21 @@ class CodeLibrary(nn.Module):
         return ret_dict
 
 if __name__ == '__main__':
-    conf_cli = OmegaConf.from_cli()
-    # conf_dataset = OmegaConf.load(conf_cli.dataset_config)
-    conf_default = OmegaConf.load("../config/default_conf.yml")
-    # # merge conf with the priority
-    # conf_merged = OmegaConf.merge(conf_default, conf_dataset, conf_cli)
+    # conf_cli = OmegaConf.from_cli()
+    # # conf_dataset = OmegaConf.load(conf_cli.dataset_config)
+    # conf_default = OmegaConf.load("../config/default_conf.yml")
+    # # # merge conf with the priority
+    # # conf_merged = OmegaConf.merge(conf_default, conf_dataset, conf_cli)
 
-    code_library = CodeLibrary(conf_default)
+    hparams = get_opts()
+    code_library = CodeLibrary(hparams)
     inputs = {}
-    H= 480
-    W=640
+    H = 480
+    W = 640
     instance_id = 1
     instance_mask = torch.ones((H,W))
+    instance_mask = instance_mask.view(-1)
     inputs["instance_ids"] = torch.ones_like(instance_mask).long() * instance_id
     ret_dict = code_library.forward(inputs)
 
-    print("ret_dict", ret_dict["embedding_instance"].shape)
+    # print("ret_dict", ret_dict["embedding_instance"].shape)

@@ -36,7 +36,8 @@ class NeRFSystem(LightningModule):
         super().__init__()
         self.save_hyperparameters(hparams)
         print("hparams", hparams)
-        hparams = DotMap(hparams)
+        #only do this for loading checkpoint/inference
+        # hparams = DotMap(hparams)
         # self.loss = loss_dict['color'](coef=1)
         self.loss = get_loss(hparams)
 
