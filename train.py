@@ -56,10 +56,8 @@ class NeRFSystem(LightningModule):
     def forward(self, rays):
         """Do batched inference on rays using chunk."""
         B = rays.shape[0]
-        print("rays.shapeeeee", rays.shape)
         results = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
-            print("rays[i:i+self.hparams.chunk]", rays[i:i+self.hparams.chunk].shape)
             rendered_ray_chunks = \
                 render_rays(self.models,
                             self.embeddings,
@@ -77,7 +75,6 @@ class NeRFSystem(LightningModule):
 
         for k, v in results.items():
             results[k] = torch.cat(v, 0)
-            print("k, v", k, results[k].shape)
         return results
 
     def setup(self, stage):
@@ -110,26 +107,15 @@ class NeRFSystem(LightningModule):
                           pin_memory=True)
     
     def training_step(self, batch, batch_nb):
-
-        rgbs, valid_mask = batch['rgbs'], batch['valid_masks']
-        print("rgbs, valid_mask", rgbs.shape, valid_mask.shape)
-
-        for k,v in batch.items():
-            print("k,v", k, v.shape)
         rays, rgbs = batch['rays'], batch['rgbs']
-
-        print("batch['rgbs']", batch['rgbs'].shape)
         results = self(rays)
         loss = self.loss(results, rgbs)
-
         with torch.no_grad():
             typ = 'fine' if 'rgb_fine' in results else 'coarse'
             psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
-
         self.log('lr', get_learning_rate(self.optimizer))
         self.log('train/loss', loss)
         self.log('train/psnr', psnr_, prog_bar=True)
-
         return loss
 
     def validation_step(self, batch, batch_nb):
@@ -145,18 +131,11 @@ class NeRFSystem(LightningModule):
             img = results[f'rgb_{typ}'].view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
             img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
             depth = visualize_depth(results[f'depth_{typ}'].view(H, W)) # (3, H, W)
-            # stack = torch.stack([img_gt, img, depth]) # (3, 3, H, W)
-
             images = {"gt":img_gt, "predicted": img, "depth": depth}
             self.logger.experiment.log({
                 "Val images": [wandb.Image(img, caption=caption)
                 for caption, img in images.items()]
             })
-
-
-            # self.logger.experiment.add_images('val/GT_pred_depth',
-            #                                    stack, self.global_step)
-
         psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
         log['val_psnr'] = psnr_
 

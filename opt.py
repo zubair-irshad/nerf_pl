@@ -119,10 +119,10 @@ def get_opts():
                         help='learning rate decay amount')
     ###########################
     #### params for poly ####
-    # parser.add_argument('--poly_exp', type=float, default=0.9,
-    #                     help='exponent for polynomial learning rate decay')
-    parser.add_argument('--poly_exp', type=float, default=2,
+    parser.add_argument('--poly_exp', type=float, default=0.9,
                         help='exponent for polynomial learning rate decay')
+    # parser.add_argument('--poly_exp', type=float, default=2,
+    #                     help='exponent for polynomial learning rate decay')
     ###########################
 
     parser.add_argument('--exp_name', type=str, default='exp',

@@ -90,20 +90,16 @@ class GoogleScannedDataset(Dataset):
 
         self.read_meta()
         self.white_back = True
-        # self.focal = 1931.371337890625
-        # self.focal *= self.img_wh[0]/1600 # modify focal length to match size self.img_wh
+        self.focal = 1931.371337890625
+        self.focal *= self.img_wh[0]/1600 # modify focal length to match size self.img_wh
 
     def read_meta(self):
 
-        self.base_dir = os.path.join(self.root_dir, '00001')
+        self.base_dir = os.path.join(self.root_dir, '00000')
         json_files = [pos_json for pos_json in os.listdir(self.base_dir) if pos_json.endswith('.json')]        
         json_files.sort()
         self.meta = json_files
         w, h = self.img_wh
-
-        self.focal = 0.5*800/np.tan(0.5*0.785398) # original focal length
-                                                                     # when W=800
-        self.focal *= self.img_wh[0]/800 # modify focal length to match size self.img_wh
         # bounds, common for all scenes
         self.near = 0.03
         self.far = 4.5
@@ -130,7 +126,7 @@ class GoogleScannedDataset(Dataset):
                 with open(file, 'r') as f:
                     data = json.loads(f.read())
                 cam2world = data["camera_data"]["cam2world"]
-                #intrinsics = data["camera_data"]["intrinsics"]
+                intrinsics = data["camera_data"]["intrinsics"]
                 # focal = intrinsics["fx"]
                 directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
                 c2w = np.array(cam2world).T
