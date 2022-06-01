@@ -32,7 +32,7 @@ rot_theta = lambda th : torch.Tensor([
 
 def pose_spherical(theta, phi, radius):
     print("radius", radius)
-    radius = 1.3
+    radius = 1.7
     c2w = trans_t(radius)
     c2w = rot_phi(phi/180.*np.pi) @ c2w
     c2w = rot_theta(theta/180.*np.pi) @ c2w
@@ -95,7 +95,7 @@ class GoogleScannedDataset(Dataset):
 
     def read_meta(self):
 
-        self.base_dir = os.path.join(self.root_dir, '00001')
+        self.base_dir = os.path.join(self.root_dir, '00008')
         json_files = [pos_json for pos_json in os.listdir(self.base_dir) if pos_json.endswith('.json')]        
         json_files.sort()
         self.meta = json_files
@@ -160,10 +160,12 @@ class GoogleScannedDataset(Dataset):
                     segmentation_id = data["objects"][id]["segmentation_id"]
                     # self.instance_ids.append(segmentation_id)
                     instance_mask = seg_masks == segmentation_id
+                    if instance_mask.sum() <100:
+                        continue
                     instance_mask_weight = rebalance_mask(
                         instance_mask,
                         fg_weight=1.0,
-                        bg_weight=0.005,
+                        bg_weight=0.05,
                     )
                     instance_mask, instance_mask_weight = self.transform(instance_mask).view(
                         -1), self.transform(instance_mask_weight).view(-1)
@@ -171,6 +173,7 @@ class GoogleScannedDataset(Dataset):
                     curr_frame_instance_masks += [instance_mask]
                     curr_frame_instance_masks_weight += [instance_mask_weight]
                     curr_frame_instance_ids += [instance_ids]
+                #self.all_current_frame_ids = len(curr_frame_instance_ids)
 
                 self.all_rays += [torch.cat([rays_o, rays_d, 
                                 self.near*torch.ones_like(rays_o[:, :1]),
@@ -187,12 +190,12 @@ class GoogleScannedDataset(Dataset):
             self.all_rays = torch.cat(self.all_rays, 0) # (len(self.meta['frames])*h*w, 3)
             self.all_rgbs = torch.cat(self.all_rgbs, 0) # (len(self.meta['frames])*h*w, 3)
             self.all_valid_masks = torch.cat(self.all_valid_masks, 0) # (len(self.meta['frames])*h*w, 3)
-            self.all_instance_masks = torch.cat(self.all_instance_masks, 0)  # (len(self.meta['frames])*h*w)
-            self.all_instance_masks_weight = torch.cat(self.all_instance_masks_weight, 0)  # (len(self.meta['frames])*h*w)
-            self.all_instance_ids = torch.cat(self.all_instance_ids, 0).long()  # (len(self.meta['frames])*h*w)
+            #self.all_instance_masks = torch.cat(self.all_instance_masks, 0)  # (len(self.meta['frames])*h*w)
+            #self.all_instance_masks_weight = torch.cat(self.all_instance_masks_weight, 0)  # (len(self.meta['frames])*h*w)
+            #self.all_instance_ids = torch.cat(self.all_instance_ids, 0).long()  # (len(self.meta['frames])*h*w)
         elif self.split =='test':
                 #1.0 is radius of hemisphere
-                radius = 1.2 * 1.0
+                #radius = 1.2 * 1.0
                 self.poses_test = torch.stack([pose_spherical(angle, -30.0, 4.0) for angle in np.linspace(-180,180,40+1)[:-1]], 0)
                 #self.poses_test = create_spheric_poses(radius)
 
@@ -208,17 +211,30 @@ class GoogleScannedDataset(Dataset):
 
     def __getitem__(self, idx):
         if self.split == 'train': # use data in the buffers
-            rand_instance_id = torch.randint(0, len(self.instance_ids), (1,))
+
+            img_size = self.img_wh[0]*self.img_wh[1]
+            frame_idx = int(idx/img_size)
+            frame_idx_sample = idx%img_size
+            rand_id = self.all_instance_masks[frame_idx].shape[1]
+            rand_instance_id = torch.randint(0, rand_id, (1,))
             sample = {
                 "rays": self.all_rays[idx],
                 "rgbs": self.all_rgbs[idx],
-                "instance_mask": self.all_instance_masks[idx, rand_instance_id],
-                "instance_mask_weight": self.all_instance_masks_weight[
-                    idx, rand_instance_id
-                ],
-                "instance_ids": self.all_instance_ids[idx, rand_instance_id],
+                "instance_mask": self.all_instance_masks[frame_idx][frame_idx_sample, rand_instance_id],
+                "instance_mask_weight": self.all_instance_masks_weight[frame_idx][frame_idx_sample, rand_instance_id],
+                "instance_ids": self.all_instance_ids[frame_idx][frame_idx_sample, rand_instance_id],
                 "valid_mask": self.all_valid_masks[idx]
             }
+
+            # rand_instance_id = torch.randint(0, self.all_current_frame_ids, (1,))
+            # sample = {
+            #     "rays": self.all_rays[idx],
+            #     "rgbs": self.all_rgbs[idx],
+            #     "instance_mask": self.all_instance_masks[idx][rand_instance_id],
+            #     "instance_mask_weight": self.all_instance_masks_weight[idx][rand_instance_id],
+            #     "instance_ids": self.all_instance_ids[idx][rand_instance_id],
+            #     "valid_mask": self.all_valid_masks[idx]
+            # }
         elif self.split == 'val': # create data for each image separately
             val_idx = 100
             json_file = self.meta[val_idx]
@@ -264,7 +280,7 @@ class GoogleScannedDataset(Dataset):
                 instance_mask_weight = rebalance_mask(
                     instance_mask,
                     fg_weight=1.0,
-                    bg_weight=0.005,
+                    bg_weight=0.05,
                 )
                 instance_mask, instance_mask_weight = self.transform(instance_mask).view(
                     -1), self.transform(instance_mask_weight).view(-1)

@@ -70,8 +70,8 @@ def get_opts():
     #### Loss params
     parser.add_argument('--color_loss_weight', type=float, default=1.0)
     parser.add_argument('--depth_loss_weight', type=float, default=0.1)
-    parser.add_argument('--opacity_loss_weight', type=float, default=1.0)
-    parser.add_argument('--instance_color_loss_weight', type=float, default=50.0)
+    parser.add_argument('--opacity_loss_weight', type=float, default=50.0)
+    parser.add_argument('--instance_color_loss_weight', type=float, default=1.0)
     parser.add_argument('--instance_depth_loss_weight', type=float, default=1.0)
 
     #### object-nerf optimizer params
