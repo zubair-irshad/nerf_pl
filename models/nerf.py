@@ -100,7 +100,6 @@ class NeRF(nn.Module):
                 torch.split(x, [self.in_channels_xyz, self.in_channels_dir], dim=-1)
         else:
             input_xyz = x
-
         xyz_ = input_xyz
         for i in range(self.D):
             if i in self.skips:
@@ -256,3 +255,156 @@ class ObjectNeRF(nn.Module):
         output_dict["inst_rgb"] = rgb
 
         return output_dict
+
+class ConditionalNeRF(nn.Module):
+    def __init__(self,
+                 D=8, W=256,
+                 in_channels_xyz=63, in_channels_dir=27, 
+                 skips=[4], latent_size=256):
+        """
+        D: number of layers for density (sigma) encoder
+        W: number of hidden units in each layer
+        in_channels_xyz: number of input channels for xyz (3+3*10*2=63 by default)
+        in_channels_dir: number of input channels for direction (3+3*4*2=27 by default)
+        skips: add skip connection in the Dth layer
+        """
+        super(ConditionalNeRF, self).__init__()
+        self.D = D
+        self.W = W
+        self.in_xyz = in_channels_xyz
+        self.in_dir = in_channels_dir
+        self.in_channels_xyz = in_channels_xyz + latent_size
+        self.in_channels_dir = in_channels_dir + latent_size
+        self.skips = skips
+
+        # in_channels_xyz += latent_size
+        # in_channels_dir += latent_size
+
+        # xyz encoding layers
+        for i in range(D):
+            if i == 0:
+                layer = nn.Linear(self.in_channels_xyz, W)
+            elif i in skips:
+                layer = nn.Linear(W+self.in_channels_xyz, W)
+            else:
+                layer = nn.Linear(W, W)
+            layer = nn.Sequential(layer, nn.ReLU(True))
+            setattr(self, f"xyz_encoding_{i+1}", layer)
+        self.xyz_encoding_final = nn.Linear(W, W)
+
+        # direction encoding layers
+        self.dir_encoding = nn.Sequential(
+                                nn.Linear(W+self.in_channels_dir, W//2),
+                                nn.ReLU(True))
+
+        # output layers
+        self.sigma = nn.Linear(W, 1)
+        self.rgb = nn.Sequential(
+                        nn.Linear(W//2, 3),
+                        nn.Sigmoid())
+
+    def forward(self, x, shape_latent, texture_latent, sigma_only=False):
+        """
+        Encodes input (xyz+dir) to rgb+sigma (not ready to render yet).
+        For rendering this ray, please see rendering.py
+
+        Inputs:
+            x: (B, self.in_channels_xyz(+self.in_channels_dir))
+               the embedded vector of position and direction
+            sigma_only: whether to infer sigma only. If True,
+                        x is of shape (B, self.in_channels_xyz)
+
+        Outputs:
+            if sigma_ony:
+                sigma: (B, 1) sigma
+            else:
+                out: (B, 4), rgb and sigma
+        """
+        shape_latent = shape_latent.repeat(x.shape[0], 1)
+        texture_latent = texture_latent.repeat(x.shape[0], 1)
+        if not sigma_only:
+            input_xyz, input_dir = \
+                torch.split(x, [self.in_xyz, self.in_dir], dim=-1)
+        else:
+            input_xyz = x
+        
+        input_xyz = torch.cat([input_xyz, shape_latent], dim=1)
+        xyz_ = input_xyz
+        for i in range(self.D):
+            if i in self.skips:
+                xyz_ = torch.cat([input_xyz, xyz_], -1)
+            xyz_ = getattr(self, f"xyz_encoding_{i+1}")(xyz_)
+
+        sigma = self.sigma(xyz_)
+        if sigma_only:
+            return sigma
+
+        xyz_encoding_final = self.xyz_encoding_final(xyz_)
+
+        dir_encoding_input = torch.cat([xyz_encoding_final, input_dir, texture_latent], -1)
+        dir_encoding = self.dir_encoding(dir_encoding_input)
+        rgb = self.rgb(dir_encoding)
+
+        out = torch.cat([rgb, sigma], -1)
+
+        return out
+
+def PE(x, degree):
+    y = torch.cat([2.**i * x for i in range(degree)], -1)
+    w = 1
+    return torch.cat([x] + [torch.sin(y) * w, torch.cos(y) * w], -1)
+
+class CodeNeRF(nn.Module):
+    def __init__(self, shape_blocks = 3, texture_blocks = 1, W = 256, 
+                 num_xyz_freq = 10, num_dir_freq = 4, latent_dim=256):
+        super().__init__()
+        self.shape_blocks = shape_blocks
+        self.texture_blocks = texture_blocks
+        self.num_xyz_freq = num_xyz_freq
+        self.num_dir_freq = num_dir_freq
+        
+        self.d_xyz, self.d_viewdir = 3 + 6 * num_xyz_freq, 3 + 6 * num_dir_freq
+        self.encoding_xyz = nn.Sequential(nn.Linear(self.d_xyz, W), nn.ReLU())
+        for j in range(shape_blocks):
+            layer = nn.Sequential(nn.Linear(latent_dim,W),nn.ReLU())
+            setattr(self, f"shape_latent_layer_{j+1}", layer)
+            layer = nn.Sequential(nn.Linear(W,W), nn.ReLU())
+            setattr(self, f"shape_layer_{j+1}", layer)
+        self.encoding_shape = nn.Linear(W,W)
+        # self.sigma = nn.Sequential(nn.Linear(W,1), nn.Softplus())
+        self.sigma = nn.Sequential(nn.Linear(W,1))
+        self.encoding_viewdir = nn.Sequential(nn.Linear(W+self.d_viewdir, W), nn.ReLU())
+        for j in range(texture_blocks):
+            layer = nn.Sequential(nn.Linear(latent_dim, W), nn.ReLU())
+            setattr(self, f"texture_latent_layer_{j+1}", layer)
+            layer = nn.Sequential(nn.Linear(W,W), nn.ReLU())
+            setattr(self, f"texture_layer_{j+1}", layer)
+        self.rgb = nn.Sequential(nn.Linear(W, W//2), nn.ReLU(), nn.Linear(W//2, 3),  nn.Sigmoid())
+        
+    def forward(self, x, shape_latent, texture_latent):
+
+        # print("x", x.shape)
+
+        xyz, viewdir = \
+                torch.split(x, [self.d_xyz, self.d_viewdir], dim=-1)
+
+        # print("xyz", xyz.shape), print("viewdir", viewdir.shape), print("shape_latent", shape_latent.shape), print("texture_latent", texture_latent.shape)
+
+        # xyz = PE(xyz, self.num_xyz_freq)
+        # viewdir = PE(viewdir, self.num_dir_freq)
+        y = self.encoding_xyz(xyz)
+        for j in range(self.shape_blocks):
+            z = getattr(self, f"shape_latent_layer_{j+1}")(shape_latent)
+            y = y + z
+            y = getattr(self, f"shape_layer_{j+1}")(y)
+        y = self.encoding_shape(y)
+        sigmas = self.sigma(y)
+        y = torch.cat([y, viewdir], -1)
+        y = self.encoding_viewdir(y)
+        for j in range(self.texture_blocks):
+            z = getattr(self, f"texture_latent_layer_{j+1}")(texture_latent)
+            y = y + z
+            y = getattr(self, f"texture_layer_{j+1}")(y)
+        rgbs = self.rgb(y)
+        out = torch.cat([rgbs, sigmas], -1)
+        return out

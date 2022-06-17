@@ -1,3 +1,4 @@
+from multiprocessing import Condition
 import os
 
 from pytorch_lightning.accelerators import accelerator
@@ -27,8 +28,16 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.plugins import DDPPlugin
 import wandb
 from pytorch_lightning.loggers import WandbLogger
+import math
 
 # wandb_logger = WandbLogger()
+
+def make_codes(embdim, d):
+    shape_codes = nn.Embedding(d, embdim)
+    texture_codes = nn.Embedding(d, embdim)
+    shape_codes.weight = nn.Parameter(torch.randn(d, embdim) / math.sqrt(embdim/2))
+    texture_codes.weight = nn.Parameter(torch.randn(d, embdim) / math.sqrt(embdim/2))
+    return shape_codes, texture_codes
 
 class NeRFSystem(LightningModule):
     def __init__(self, hparams):
@@ -42,34 +51,38 @@ class NeRFSystem(LightningModule):
         self.embeddings = {'xyz': self.embedding_xyz,
                            'dir': self.embedding_dir}
 
-        self.nerf_coarse = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
-                                in_channels_dir=6*hparams.N_emb_dir+3)
+        # self.nerf_coarse = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
+        #                         in_channels_dir=6*hparams.N_emb_dir+3)
+
+        # self.nerf_coarse = CodeNeRF()
+
+        self.nerf_coarse = ConditionalNeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
+                                            in_channels_dir=6*hparams.N_emb_dir+3)
         self.models = {'coarse': self.nerf_coarse}
         load_ckpt(self.nerf_coarse, hparams.weight_path, 'nerf_coarse')
 
         if hparams.N_importance > 0:
-            self.nerf_fine = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
-                                  in_channels_dir=6*hparams.N_emb_dir+3)
+            # self.nerf_fine = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
+            #                       in_channels_dir=6*hparams.N_emb_dir+3)
+            # self.nerf_fine = CodeNeRF()
+            self.nerf_fine = ConditionalNeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
+                                            in_channels_dir=6*hparams.N_emb_dir+3)
             self.models['fine'] = self.nerf_fine
             load_ckpt(self.nerf_fine, hparams.weight_path, 'nerf_fine')
+        self.shape_codes, self.texture_codes = make_codes(hparams.latent_dim, hparams.emb_dim)
+        self.automatic_optimization = False
 
-    def forward(self, rays):
+    def forward(self, rays, shape_codes, texture_codes):
         """Do batched inference on rays using chunk."""
         B = rays.shape[0]
-        print("B", B)
         results = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
-            print("=========================\n\n\n")
-            print("i", i)
-            print("i+self.hparams.chunk")
-            print("rayssssssss", rays.shape)
-            print("self.hparams.chunk", self.hparams.chunk)
-            print("rays[i:i+self.hparams.chunk]", rays[i:i+self.hparams.chunk].shape)
-            print("=========================\n\n\n")
             rendered_ray_chunks = \
-                render_rays(self.models,
+                render_rays_conditional(self.models,
                             self.embeddings,
                             rays[i:i+self.hparams.chunk],
+                            shape_codes,
+                            texture_codes,
                             self.hparams.N_samples,
                             self.hparams.use_disp,
                             self.hparams.perturb,
@@ -87,24 +100,27 @@ class NeRFSystem(LightningModule):
 
     def setup(self, stage):
         dataset = dataset_dict[self.hparams.dataset_name]
-        kwargs = {'root_dir': self.hparams.root_dir,
-                  'img_wh': tuple(self.hparams.img_wh)}
-        if self.hparams.dataset_name == 'llff' or self.hparams.dataset_name == 'llff_nocs':
-            kwargs['spheric_poses'] = self.hparams.spheric_poses
-            kwargs['val_num'] = self.hparams.num_gpus
-        self.train_dataset = dataset(split='train', **kwargs)
-        self.val_dataset = dataset(split='val', **kwargs)
+        # kwargs = {'root_dir': self.hparams.root_dir,
+        #           'img_wh': tuple(self.hparams.img_wh)}
+        # if self.hparams.dataset_name == 'llff' or self.hparams.dataset_name == 'llff_nocs':
+        #     kwargs['spheric_poses'] = self.hparams.spheric_poses
+        #     kwargs['val_num'] = self.hparams.num_gpus
+        self.train_dataset = dataset(splits='cars_train', img_wh = self.hparams.img_wh)
+        self.val_dataset = dataset(splits='cars_val', img_wh = self.hparams.img_wh)
 
     def configure_optimizers(self):
         self.optimizer = get_optimizer(self.hparams, self.models)
+        self.optimizer_latent = get_optimizer_latent(hparams, self.shape_codes, self.texture_codes)
         scheduler = get_scheduler(self.hparams, self.optimizer)
-        return [self.optimizer], [scheduler]
+        scheduler_latent = get_scheduler(self.hparams, self.optimizer_latent)
+        return [self.optimizer, self.optimizer_latent], [scheduler, scheduler_latent]
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
                           shuffle=True,
                           num_workers=4,
-                          batch_size=self.hparams.batch_size,
+                        #   batch_size=self.hparams.batch_size,
+                          batch_size=1,
                           pin_memory=True)
 
     def val_dataloader(self):
@@ -115,27 +131,82 @@ class NeRFSystem(LightningModule):
                           pin_memory=True)
     
     def training_step(self, batch, batch_nb):
-        rays, rgbs = batch['rays'], batch['rgbs']
-        print("raysssssssssssssssssssssss", rays.shape, "rgbssssssssssssssssssssssssssssssss", rgbs.shape)
-        results = self(rays)
-        loss = self.loss(results, rgbs)
-        with torch.no_grad():
+        rays, rgbs, obj_idx = batch['rays'], batch['rgbs'], batch['obj_id']
+        rays = rays.squeeze(0)
+        rgbs = rgbs.squeeze(0)
+        loss_img_all = []
+        loss_latent_all = []
+        generated_img = []
+        gt_img = []
+
+        for i in range(0, rays.shape[0], self.hparams.batch_size):
+            shape_codes = self.shape_codes(obj_idx)
+            texture_codes = self.texture_codes(obj_idx)
+            results = self(rays[i:i+self.hparams.batch_size], shape_codes, texture_codes)
+            loss_img = self.loss(results, rgbs[i:i+self.hparams.batch_size])
+
             typ = 'fine' if 'rgb_fine' in results else 'coarse'
-            psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
+
+            if batch_nb == 0:
+                W, H = self.hparams.img_wh
+                generated_img.append(results[f'rgb_{typ}'])
+                gt_img.append(rgbs[i:i+self.hparams.batch_size])
+            
+            if i == 0:
+                reg_loss = torch.norm(shape_codes, dim=-1) + torch.norm(texture_codes, dim=-1)
+                loss_reg = 1e-3 * torch.mean(reg_loss)
+                loss = loss_img + loss_reg
+            else:
+                loss = loss_img
+
+            for optimizer in  self.optimizers():
+                optimizer.zero_grad()
+            self.manual_backward(loss)
+            for optimizer in  self.optimizers():
+                optimizer.step()
+                
+            # with torch.no_grad():
+            #     typ = 'fine' if 'rgb_fine' in results else 'coarse'
+            #     psnr_ = psnr(results[f'rgb_{typ}'], rgbs[i:i+self.hparams.batch_size])
+            #     psnr_all.append(psnr_)
+            loss_img_all.append(loss_img.item())
+            loss_latent_all.append(loss_reg.item())
+
+        if batch_nb ==0:
+
+            gt_img = torch.cat(gt_img).detach()
+            gt_img = gt_img.reshape(H,W,3).permute(2, 0, 1).cpu()
+            self.logger.experiment.log({"Train image/gt": [wandb.Image(gt_img)]})
+
+            generated_img = torch.cat(generated_img)
+            generated_img = generated_img.reshape(H,W,3).permute(2, 0, 1).cpu()
+            self.logger.experiment.log({"Train image/pred": [wandb.Image(generated_img)]})
+
+        # for scheduler in self.lr_schedulers():
+        #     scheduler.step()            
+        psnr = -10*np.log(np.mean(loss_img_all)) / np.log(10)
+        #psnr = -10*torch.log10(torch.from_numpy(np.asarray(np.mean(loss_img_all))))
         self.log('lr', get_learning_rate(self.optimizer))
-        self.log('train/loss', loss)
-        self.log('train/psnr', psnr_, prog_bar=True)
+        self.log('train/loss_img', np.mean(loss_img_all))
+        self.log('train/loss_latent', np.mean(loss_latent_all))
+        self.log('train/psnr', psnr, prog_bar=True)
+
         return loss
 
+    def on_epoch_end(self):
+        for scheduler in self.lr_schedulers():
+            scheduler.step()  
+
+
     def validation_step(self, batch, batch_nb):
-        
-        rays, rgbs = batch['rays'], batch['rgbs']
+        rays, rgbs, obj_idx = batch['rays'], batch['rgbs'], batch['obj_id']
         rays = rays.squeeze() # (H*W, 3)
         rgbs = rgbs.squeeze() # (H*W, 3)
-        results = self(rays)
+        shape_codes = self.shape_codes(obj_idx)
+        texture_codes = self.texture_codes(obj_idx)
+        results = self(rays, shape_codes, texture_codes)
         log = {'val_loss': self.loss(results, rgbs)}
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
-    
         if batch_nb == 0:
             W, H = self.hparams.img_wh
             img = results[f'rgb_{typ}'].view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
@@ -174,11 +245,11 @@ def main(hparams):
     #                            default_hp_metric=False)
     wandb_logger = WandbLogger()
 
-    trainer = Trainer(max_epochs=hparams.num_epochs,
+    trainer = Trainer(enable_model_summary=True,
+                      max_epochs=hparams.num_epochs,
                       callbacks=callbacks,
                       resume_from_checkpoint=hparams.ckpt_path,
                       logger=wandb_logger,
-                      enable_model_summary=False,
                       accelerator='auto',
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=1,

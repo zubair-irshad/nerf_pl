@@ -1,7 +1,7 @@
 import torch
 from einops import rearrange, reduce, repeat
 
-__all__ = ['render_rays']
+__all__ = ['render_rays', 'render_rays_conditional']
 
 
 def sample_pdf(bins, weights, N_importance, det=False, eps=1e-5):
@@ -193,7 +193,6 @@ def render_rays(models,
         z_vals = lower + (upper - lower) * perturb_rand
 
     xyz_coarse = rays_o + rays_d * rearrange(z_vals, 'n1 n2 -> n1 n2 1')
-
     results = {}
     inference(results, models['coarse'], 'coarse', xyz_coarse, z_vals, test_time, **kwargs)
 
@@ -213,9 +212,11 @@ def render_rays(models,
     return results
 
 
-def render_rays_composite(models,
+def render_rays_conditional(models,
                 embeddings,
                 rays,
+                shape_code,
+                app_code,
                 N_samples=64,
                 use_disp=False,
                 perturb=0,
@@ -245,7 +246,7 @@ def render_rays_composite(models,
         result: dictionary containing final rgb and depth maps for coarse and fine models
     """
 
-    def inference(results, model, typ, xyz, z_vals, test_time=False, **kwargs):
+    def inference(results, model, typ, xyz, shape_code, app_code, z_vals, test_time=False, **kwargs):
         """
         Helper function that performs model inference.
         Inputs:
@@ -286,7 +287,7 @@ def render_rays_composite(models,
                 xyz_embedded = embedding_xyz(xyz_[i:i+chunk])
                 xyzdir_embedded = torch.cat([xyz_embedded,
                                              dir_embedded_[i:i+chunk]], 1)
-                out_chunks += [model(xyzdir_embedded, sigma_only=False)]
+                out_chunks += [model(xyzdir_embedded, shape_code, app_code)]
 
             out = torch.cat(out_chunks, 0)
             # out = out.view(N_rays, N_samples_, 4)
@@ -301,7 +302,8 @@ def render_rays_composite(models,
 
         # compute alpha by the formula (3)
         noise = torch.randn_like(sigmas) * noise_std
-        alphas = 1-torch.exp(-deltas*torch.relu(sigmas+noise)) # (N_rays, N_samples_)
+        #alphas = 1-torch.exp(-deltas*torch.relu(sigmas+noise)) # (N_rays, N_samples_)
+        alphas = 1-torch.exp(-deltas*torch.nn.Softplus()(sigmas+noise))
 
         alphas_shifted = \
             torch.cat([torch.ones_like(alphas[:, :1]), 1-alphas+1e-10], -1) # [1, 1-a1, 1-a2, ...]
@@ -358,14 +360,8 @@ def render_rays_composite(models,
         z_vals = lower + (upper - lower) * perturb_rand
 
     xyz_coarse = rays_o + rays_d * rearrange(z_vals, 'n1 n2 -> n1 n2 1')
-
     results = {}
-    inference(results, models['coarse'], 'coarse', xyz_coarse, z_vals, test_time, **kwargs)
-
-
-    for object_i in range(5):
-        model_name = 'model_obj_' + str(int(object_i))
-        inference(results, models[model_name], model_name, xyz_coarse, z_vals, test_time, **kwargs)
+    inference(results, models['coarse'], 'coarse', xyz_coarse, shape_code, app_code, z_vals, test_time, **kwargs)
 
     if N_importance > 0: # sample points for fine model
         z_vals_mid = 0.5 * (z_vals[: ,:-1] + z_vals[: ,1:]) # (N_rays, N_samples-1) interval mid points
@@ -378,6 +374,7 @@ def render_rays_composite(models,
 
         xyz_fine = rays_o + rays_d * rearrange(z_vals, 'n1 n2 -> n1 n2 1')
 
-        inference(results, models['fine'], 'fine', xyz_fine, z_vals, test_time, **kwargs)
+        inference(results, models['fine'], 'fine', xyz_fine, shape_code, app_code, z_vals, test_time, **kwargs)
 
     return results
+

@@ -540,9 +540,6 @@ class LLFFDatasetNOCSOrig(Dataset):
             
         if self.split == 'train': # create buffer of all rays and rgb data
                                   # use first N_images-1 to train, the LAST is val
-            # self.all_rays = []
-            # self.all_rgbs = []
-            # self.all_masks = []
 
             self.all_rays = []
             self.all_rgbs = []

@@ -7,13 +7,16 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned'],
+                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi'],
                         help='which dataset to train/val')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[640, 480],
                         help='resolution (img_w, img_h) of the image')
     parser.add_argument('--spheric_poses', default=True, action="store_true",
                         help='whether images are taken in spheric poses (for llff)')
-
+    parser.add_argument('--emb_dim', type=int, default=2458,
+                        help='Total number of different objects in a category')
+    parser.add_argument('--latent_dim', type=int, default=256,
+                        help='dim of latent each for shape and appearance')
     parser.add_argument('--N_emb_xyz', type=int, default=10,
                         help='number of frequencies in xyz positional encoding')
     parser.add_argument('--N_emb_dir', type=int, default=4,
@@ -80,11 +83,16 @@ def get_opts():
                         choices=['sgd', 'adam', 'radam', 'ranger'])
     parser.add_argument('--lr', type=float, default=1.0e-3,
                         help='learning rate')
+    parser.add_argument('--latent_lr', type=float, default=1.0e-3,
+                        help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9,
                         help='learning rate momentum')
     parser.add_argument('--weight_decay', type=float, default=0,
                         help='weight decay')
     parser.add_argument('--lr_scheduler', type=str, default='poly',
+                        help='scheduler type',
+                        choices=['steplr', 'cosine', 'poly'])
+    parser.add_argument('--lr_scheduler_latent', type=str, default='poly',
                         help='scheduler type',
                         choices=['steplr', 'cosine', 'poly'])
     #### params for warmup, only applied when optimizer == 'sgd' or 'adam'
@@ -119,7 +127,7 @@ def get_opts():
                         help='learning rate decay amount')
     ###########################
     #### params for poly ####
-    parser.add_argument('--poly_exp', type=float, default=0.9,
+    parser.add_argument('--poly_exp', type=float, default=0.99,
                         help='exponent for polynomial learning rate decay')
     # parser.add_argument('--poly_exp', type=float, default=2,
     #                     help='exponent for polynomial learning rate decay')

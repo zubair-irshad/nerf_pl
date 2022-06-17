@@ -41,6 +41,15 @@ def get_optimizer(hparams, models):
 
     return optimizer
 
+
+def get_optimizer_latent(hparams, shape_latent, appearance_latent):
+    latent_opt = torch.optim.AdamW([
+            {'params':shape_latent.parameters(), 'lr': hparams.latent_lr},
+            {'params':appearance_latent.parameters(), 'lr':hparams.latent_lr}
+        ])
+
+    return latent_opt
+
 def get_scheduler(hparams, optimizer):
     eps = 1e-8
     if hparams.lr_scheduler == 'steplr':
@@ -49,6 +58,26 @@ def get_scheduler(hparams, optimizer):
     elif hparams.lr_scheduler == 'cosine':
         scheduler = CosineAnnealingLR(optimizer, T_max=hparams.num_epochs, eta_min=eps)
     elif hparams.lr_scheduler == 'poly':
+        scheduler = LambdaLR(optimizer, 
+                             lambda epoch: (1-epoch/hparams.num_epochs)**hparams.poly_exp)
+    else:
+        raise ValueError('scheduler not recognized!')
+
+    if hparams.warmup_epochs > 0 and hparams.optimizer not in ['radam', 'ranger']:
+        scheduler = GradualWarmupScheduler(optimizer, multiplier=hparams.warmup_multiplier, 
+                                           total_epoch=hparams.warmup_epochs, after_scheduler=scheduler)
+
+    return scheduler
+
+
+def get_scheduler_latent(hparams, optimizer):
+    eps = 1e-8
+    if hparams.lr_scheduler_latent == 'steplr':
+        scheduler = MultiStepLR(optimizer, milestones=hparams.decay_step, 
+                                gamma=hparams.decay_gamma)
+    elif hparams.lr_scheduler_latent == 'cosine':
+        scheduler = CosineAnnealingLR(optimizer, T_max=hparams.num_epochs, eta_min=eps)
+    elif hparams.lr_scheduler_latent == 'poly':
         scheduler = LambdaLR(optimizer, 
                              lambda epoch: (1-epoch/hparams.num_epochs)**hparams.poly_exp)
     else:
