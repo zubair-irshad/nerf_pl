@@ -32,6 +32,13 @@ def get_opts():
     parser.add_argument('--noise_std', type=float, default=1.0,
                         help='std dev of noise added to regularize sigma')
 
+    # params for SRN multicat training
+
+    parser.add_argument('--splits', type=str, default=None,
+                        help='which category to use')
+    parser.add_argument('--cat', type=str, default=None,
+                        help='which category to use')
+
     # params for latent codes:
     # 
     parser.add_argument('--N_max_objs', type=int, default=64,

@@ -46,9 +46,16 @@ class SRN_Multi():
         self.data_dir = os.path.join(data_dir, cat, splits)
         self.ids = np.sort([f.name for f in os.scandir(self.data_dir)])
         # self.ids = self.ids[:1102]
-        self.lenids = len(self.ids)
         self.num_instances_per_obj = num_instances_per_obj
         self.train = True if splits.split('_')[1] == 'train' else False
+        self.lenids = len(self.ids)
+        
+        # if not self.train:
+        #     # only for val, choose 10 random ids within the train set for validation
+        #     id_val = np.random.choice(self.lenids, 10)
+        #     self.ids = self.ids[id_val]
+        #     self.lenids = len(self.ids)
+
         self.img_wh = img_wh
         self.crop_img = crop_img
         # bounds, common for all scenes
@@ -56,6 +63,7 @@ class SRN_Multi():
         self.far = 2.0
         self.bounds = np.array([self.near, self.far])
         self.use_mask = use_mask
+        self.cat = cat
 
     def define_transforms(self):
         self.transform = T.ToTensor()
@@ -68,13 +76,14 @@ class SRN_Multi():
         imgfiles = np.array(allimgfiles)[idxs]
         for imgfile in imgfiles:
             img = Image.open(imgfile) 
-            # img = img.convert('RGB')
             img = self.transform(img) # (h, w, 3)
             if self.crop_img:
                 img = img[:,32:-32,32:-32]
-            img = img.contiguous().view(4, -1).permute(1, 0) # (h*w, 4) RGBA 
-            img = img[:, :3]*img[:, -1:] + (1-img[:, -1:]) # blend A to RGB
-            # img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+            if self.cat == 'srn_cars':
+                img = img.contiguous().view(4, -1).permute(1, 0) # (h*w, 4) RGBA 
+                img = img[:, :3]*img[:, -1:] + (1-img[:, -1:]) # blend A to RGB
+            else:
+                img = img.contiguous().view(3, -1).permute(1, 0) # (h*w, 3) RGBA
         return img
     
     def __getitem__(self, idx):
@@ -87,7 +96,7 @@ class SRN_Multi():
             }
             return sample
         else:
-            rays, img = self.return_test_val_data(obj_id)
+            rays, img = self.return_val_data(obj_id)
             sample = { "rays": rays,
                        "rgbs": img,
                        "obj_id": idx
@@ -127,16 +136,15 @@ class SRN_Multi():
             img = img[valid_mask] # remove valid_mask for later epochs
             
         return rays, img
-    
-    def return_test_val_data(self, obj_id):
+
+    def return_val_data(self, obj_id):
         pose_dir = os.path.join(self.data_dir, obj_id, 'pose')
         img_dir = os.path.join(self.data_dir, obj_id, 'rgb')
         intrinsic_path = os.path.join(self.data_dir, obj_id, 'intrinsics.txt')
         # instances = np.arange(250)
-        instances = np.random.choice(250, 1)
+        instances = np.random.choice(50, 1)
         c2w = load_poses(pose_dir, instances)
         img = self.load_img(img_dir, instances)
-        
         w, h = self.img_wh
         focal, H, W = load_intrinsic(intrinsic_path)
         directions = get_ray_directions(h, w, focal) # (h, w, 3)
@@ -147,3 +155,23 @@ class SRN_Multi():
                                 self.far*torch.ones_like(rays_o[:, :1])],
                                 1)
         return rays, img
+
+    # def return_test_data(self, obj_id):
+    #     pose_dir = os.path.join(self.data_dir, obj_id, 'pose')
+    #     img_dir = os.path.join(self.data_dir, obj_id, 'rgb')
+    #     intrinsic_path = os.path.join(self.data_dir, obj_id, 'intrinsics.txt')
+    #     # instances = np.arange(250)
+    #     instances = np.random.choice(250, 1)
+    #     c2w = load_poses(pose_dir, instances)
+    #     img = self.load_img(img_dir, instances)
+        
+    #     w, h = self.img_wh
+    #     focal, H, W = load_intrinsic(intrinsic_path)
+    #     directions = get_ray_directions(h, w, focal) # (h, w, 3)
+    #     c2w = torch.FloatTensor(c2w)[:3, :4]
+    #     rays_o, rays_d = get_rays(directions, c2w)
+    #     rays = torch.cat([rays_o, rays_d, 
+    #                             self.near*torch.ones_like(rays_o[:, :1]),
+    #                             self.far*torch.ones_like(rays_o[:, :1])],
+    #                             1)
+    #     return rays, img
