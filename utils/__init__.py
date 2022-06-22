@@ -1,6 +1,6 @@
 import torch
 # optimizer
-from torch.optim import SGD, Adam
+from torch.optim import SGD, Adam, AdamW
 import torch_optimizer as optim
 # scheduler
 from torch.optim.lr_scheduler import CosineAnnealingLR, MultiStepLR, LambdaLR
@@ -28,7 +28,9 @@ def get_optimizer(hparams, models):
         optimizer = SGD(parameters, lr=hparams.lr, 
                         momentum=hparams.momentum, weight_decay=hparams.weight_decay)
     elif hparams.optimizer == 'adam':
-        optimizer = Adam(parameters, lr=hparams.lr, eps=eps, 
+        # optimizer = Adam(parameters, lr=hparams.lr, eps=eps, 
+        #                  weight_decay=hparams.weight_decay)
+        optimizer = AdamW(parameters, lr=hparams.lr, eps=eps, 
                          weight_decay=hparams.weight_decay)
     elif hparams.optimizer == 'radam':
         optimizer = optim.RAdam(parameters, lr=hparams.lr, eps=eps, 
@@ -59,7 +61,7 @@ def get_scheduler(hparams, optimizer):
         scheduler = CosineAnnealingLR(optimizer, T_max=hparams.num_epochs, eta_min=eps)
     elif hparams.lr_scheduler == 'poly':
         scheduler = LambdaLR(optimizer, 
-                             lambda epoch: (1-epoch/hparams.num_epochs)**hparams.poly_exp)
+                             lambda epoch: (1-epoch/(hparams.num_epochs))**hparams.poly_exp)
     else:
         raise ValueError('scheduler not recognized!')
 
@@ -77,9 +79,12 @@ def get_scheduler_latent(hparams, optimizer):
                                 gamma=hparams.decay_gamma)
     elif hparams.lr_scheduler_latent == 'cosine':
         scheduler = CosineAnnealingLR(optimizer, T_max=hparams.num_epochs, eta_min=eps)
+    # elif hparams.lr_scheduler_latent == 'poly':
+    #     scheduler = LambdaLR(optimizer, 
+    #                          lambda epoch: (1-epoch/(hparams.num_epochs*2))**hparams.poly_exp)
     elif hparams.lr_scheduler_latent == 'poly':
         scheduler = LambdaLR(optimizer, 
-                             lambda epoch: (1-epoch/hparams.num_epochs)**hparams.poly_exp)
+                             lambda epoch: (1-epoch/(hparams.num_epochs))**hparams.poly_exp)
     else:
         raise ValueError('scheduler not recognized!')
 
@@ -110,10 +115,17 @@ def extract_model_state_dict(ckpt_path, model_name='model', prefixes_to_ignore=[
             checkpoint_[k] = v
     return checkpoint_
 
-def load_ckpt(model, ckpt_path, model_name='model', prefixes_to_ignore=[]):
+def load_ckpt(model, ckpt_path, model_name='model', prefixes_to_ignore=[], load_latent = True):
     if not ckpt_path:
         return
     model_dict = model.state_dict()
     checkpoint_ = extract_model_state_dict(ckpt_path, model_name, prefixes_to_ignore)
     model_dict.update(checkpoint_)
     model.load_state_dict(model_dict)
+
+
+def load_latent_codes(ckpt_path):
+    checkpoint_latent_codes = torch.load(ckpt_path, map_location=torch.device('cpu'))
+    shape_code_params = checkpoint_latent_codes['state_dict']['shape_code.weight']
+    texture_code_params = checkpoint_latent_codes['state_dict']['texture_codes.weight']
+    return shape_code_params, texture_code_params

@@ -60,7 +60,7 @@ class ObjectronDataset(Dataset):
 
     def read_meta(self):
 
-        self.base_dir = '/home/ubuntu/nerf_pl/data/objectron/camera/batch-11_40'
+        self.base_dir = '/home/ubuntu/nerf_pl/data/objectron/chair/chair_batch-24_33'
                 #json_files = [pos_json for pos_json in os.listdir(base_dir) if pos_json.endswith('.json')]
         sfm_arframe_filename = self.base_dir + '/sfm_arframe.pbdata'
         frame_data = load_frame_data(sfm_arframe_filename)
@@ -83,13 +83,16 @@ class ObjectronDataset(Dataset):
             self.all_rays = []
             self.all_rgbs = []
             for i, img_name in enumerate(self.meta):
-                if i>100:
+                if i>200:
                     continue
                 c2w = self.all_c2w[i]
 
                 focal = self.all_focal[i]
+                print("self.focal", focal)
+                # focal *= self.img_wh[0]/1440 # modify focal length to match size self.img_wh
+                # for bottle
                 focal *= self.img_wh[0]/1440 # modify focal length to match size self.img_wh
-
+                print("self.focal after", focal)
                 directions = get_ray_directions(h, w, focal) # (h, w, 3)
                 c2w = torch.FloatTensor(c2w)[:3, :4]
                 rays_o, rays_d = get_rays(directions, c2w)
@@ -124,7 +127,7 @@ class ObjectronDataset(Dataset):
             }
 
         elif self.split == 'val': # create data for each image separately
-            val_idx = 100
+            val_idx = 201
             img_name = self.meta[val_idx]
             w, h = self.img_wh
             c2w = self.all_c2w[val_idx]

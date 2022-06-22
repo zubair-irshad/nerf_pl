@@ -12,16 +12,21 @@ def load_poses(pose_dir, idxs=[]):
     txtfiles = np.sort([os.path.join(pose_dir, f.name) for f in os.scandir(pose_dir)])
     posefiles = np.array(txtfiles)[idxs]
     srn_coords_trans = np.diag(np.array([1, -1, -1, 1])) # SRN dataset
-    # poses = []
-    # print("pose_file", posefile)
-    # pose = np.loadtxt(posefile).reshape(4,4)
-    # c2w = pose@srn_coords_trans
-
     for posefile in posefiles:
         pose = np.loadtxt(posefile).reshape(4,4)
         c2w = pose@srn_coords_trans
-    #     poses.append(pose@srn_coords_trans)
     return c2w
+
+def normalize_image():
+    ops = []
+    ops.extend(
+        [T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),]
+    )
+    # ops.extend(
+    #     [T.Normalize(mean=[0.485, 0.456, 0.406],
+    #                                  std=[0.229, 0.224, 0.225])]
+    # )
+    return T.Compose(ops)
 
 def load_intrinsic(intrinsic_path):
     with open(intrinsic_path, 'r') as f:
@@ -34,7 +39,7 @@ def load_intrinsic(intrinsic_path):
 class SRN_Multi():
     def __init__(self, cat='srn_cars', splits='cars_train',
                 img_wh=(128, 128), data_dir = '/data/datasets/code_nerf',
-                num_instances_per_obj = 1, crop_img = True, use_mask = False):
+                num_instances_per_obj = 1, crop_img = False, use_mask = False):
         """
         cat: srn_cars / srn_chairs
         split: cars_train(/test/val) or chairs_train(/test/val)
@@ -45,10 +50,12 @@ class SRN_Multi():
         self.white_back = True
         self.data_dir = os.path.join(data_dir, cat, splits)
         self.ids = np.sort([f.name for f in os.scandir(self.data_dir)])
+        # self.ids = self.ids[:100]
         # self.ids = self.ids[:1102]
         self.num_instances_per_obj = num_instances_per_obj
         self.train = True if splits.split('_')[1] == 'train' else False
         self.lenids = len(self.ids)
+        self.normalize_img = normalize_image()
         
         # if not self.train:
         #     # only for val, choose 10 random ids within the train set for validation
@@ -59,11 +66,14 @@ class SRN_Multi():
         self.img_wh = img_wh
         self.crop_img = crop_img
         # bounds, common for all scenes
-        self.near = 0.3
-        self.far = 2.0
+        self.near = 0.8
+        self.far = 1.8
         self.bounds = np.array([self.near, self.far])
         self.use_mask = use_mask
         self.cat = cat
+
+    def define_transforms(self):
+        self.transform = T.ToTensor()
 
     def define_transforms(self):
         self.transform = T.ToTensor()
@@ -84,14 +94,17 @@ class SRN_Multi():
                 img = img[:, :3]*img[:, -1:] + (1-img[:, -1:]) # blend A to RGB
             else:
                 img = img.contiguous().view(3, -1).permute(1, 0) # (h*w, 3) RGBA
-        return img
+            enc_image =  img.reshape(self.img_wh[0],self.img_wh[1],3).permute(2,1,0)
+            enc_image = self.normalize_img(enc_image)
+        return img, enc_image
     
     def __getitem__(self, idx):
         obj_id = self.ids[idx]
         if self.train:
-            rays, img = self.return_train_data(obj_id)
+            rays, img, enc_img = self.return_train_data(obj_id)
             sample = { "rays": rays,
                        "rgbs": img,
+                       "enc_img": enc_img,
                        "obj_id": idx
             }
             return sample
@@ -99,6 +112,7 @@ class SRN_Multi():
             rays, img = self.return_val_data(obj_id)
             sample = { "rays": rays,
                        "rgbs": img,
+                       "enc_img": enc_img,
                        "obj_id": idx
             }
             return sample
@@ -109,7 +123,7 @@ class SRN_Multi():
         intrinsic_path = os.path.join(self.data_dir, obj_id, 'intrinsics.txt')
         instances = np.random.choice(50, self.num_instances_per_obj)
         c2w = load_poses(pose_dir, instances)
-        img = self.load_img(img_dir, instances)
+        img, enc_img = self.load_img(img_dir, instances)
         focal, H, W = load_intrinsic(intrinsic_path)
 
         w, h = self.img_wh
@@ -135,7 +149,7 @@ class SRN_Multi():
             rays = ray_array[valid_mask] # remove valid_mask for later epochs
             img = img[valid_mask] # remove valid_mask for later epochs
             
-        return rays, img
+        return rays, img, enc_img
 
     def return_val_data(self, obj_id):
         pose_dir = os.path.join(self.data_dir, obj_id, 'pose')
@@ -144,7 +158,7 @@ class SRN_Multi():
         # instances = np.arange(250)
         instances = np.random.choice(50, 1)
         c2w = load_poses(pose_dir, instances)
-        img = self.load_img(img_dir, instances)
+        img, enc_img = self.load_img(img_dir, instances)
         w, h = self.img_wh
         focal, H, W = load_intrinsic(intrinsic_path)
         directions = get_ray_directions(h, w, focal) # (h, w, 3)
@@ -154,7 +168,7 @@ class SRN_Multi():
                                 self.near*torch.ones_like(rays_o[:, :1]),
                                 self.far*torch.ones_like(rays_o[:, :1])],
                                 1)
-        return rays, img
+        return rays, img, enc_img
 
     # def return_test_data(self, obj_id):
     #     pose_dir = os.path.join(self.data_dir, obj_id, 'pose')

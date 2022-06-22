@@ -32,6 +32,11 @@ def get_opts():
     parser.add_argument('--noise_std', type=float, default=1.0,
                         help='std dev of noise added to regularize sigma')
 
+    parser.add_argument('--crop_img', default=True, action="store_true",
+                        help='initially crop the image or not')
+    parser.add_argument('--use_image_encoder', default=False, action="store_true",
+                        help='initially crop the image or not')
+
     # params for SRN multicat training
 
     parser.add_argument('--splits', type=str, default=None,
@@ -76,7 +81,10 @@ def get_opts():
                         help='the prefixes to ignore in the checkpoint state dict')
     parser.add_argument('--weight_path', type=str, default=None,
                         help='pretrained model weight to load (do not load optimizers, etc)')
+    parser.add_argument('--latent_code_path', type=str, default=None,
+                        help='pretrained model weight to load (do not load optimizers, etc)')
 
+    
     #### Loss params
     parser.add_argument('--color_loss_weight', type=float, default=1.0)
     parser.add_argument('--depth_loss_weight', type=float, default=0.1)
@@ -90,6 +98,8 @@ def get_opts():
                         choices=['sgd', 'adam', 'radam', 'ranger'])
     parser.add_argument('--lr', type=float, default=1.0e-3,
                         help='learning rate')
+    # parser.add_argument('--lr', type=float, default=1.0e-4,
+    #                     help='learning rate')
     parser.add_argument('--latent_lr', type=float, default=1.0e-3,
                         help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9,

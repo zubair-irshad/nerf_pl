@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from models.resnet_encoder import MultiHeadImgEncoder
 
 class Embedding(nn.Module):
     def __init__(self, N_freqs, logscale=True):

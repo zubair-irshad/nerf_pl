@@ -73,7 +73,7 @@ class SRNDataset(Dataset):
 
     def read_meta(self):
 
-        self.base_dir = '/data/datasets/code_nerf/srn_cars/cars_train/a7b76ead88d243133ffe0e5069bf1eb5'
+        self.base_dir = '/data/datasets/code_nerf/srn_chairs/chairs_train/5a80c5a35dc1634db87028a4b477349f'
                 #json_files = [pos_json for pos_json in os.listdir(base_dir) if pos_json.endswith('.json')]
         #sfm_arframe_filename = self.base_dir + '/sfm_arframe.pbdata'
         
@@ -84,8 +84,12 @@ class SRNDataset(Dataset):
         
         w, h = self.img_wh
         # bounds, common for all scenes
-        self.near = 0.3
-        self.far = 2.0
+        # self.near = 0.3
+        # self.far = 2.0
+
+        self.near = 1.25
+        self.far = 2.75
+
         self.bounds = np.array([self.near, self.far])
             
         if self.split == 'train': # create buffer of all rays and rgb data
@@ -103,9 +107,12 @@ class SRNDataset(Dataset):
                 #     h, w = h // 2, w//2
                 # print("img", img.shape)
                 # print()
+                
+                #comment for chairs
+                img = img.contiguous().view(3, -1).permute(1, 0) # (h*w, 3) RGBA
 
-                img = img.contiguous().view(4, -1).permute(1, 0) # (h*w, 4) RGBA 
-                img = img[:, :3]*img[:, -1:] + (1-img[:, -1:]) # blend A to RGB
+                # img = img.contiguous().view(4, -1).permute(1, 0) # (h*w, 4) RGBA 
+                # img = img[:, :3]*img[:, -1:] + (1-img[:, -1:]) # blend A to RGB
 
 
                 directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
@@ -171,8 +178,11 @@ class SRNDataset(Dataset):
                 img = img[:,32:-32,32:-32]
                 # h, w = h // 2, w//2
 
-            img = img.contiguous().view(4, -1).permute(1, 0) # (h*w, 4) RGBA 
-            img = img[:, :3]*img[:, -1:] + (1-img[:, -1:]) # blend A to RGB
+            #comment for chairs
+            img = img.contiguous().view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+
+            # img = img.contiguous().view(4, -1).permute(1, 0) # (h*w, 4) RGBA 
+            # img = img[:, :3]*img[:, -1:] + (1-img[:, -1:]) # blend A to RGB
 
             # valid_mask = (img.sum(1)<3).flatten() # (H*W) valid color area
             # img = img[valid_mask] # remove valid_mask for later epochs 
