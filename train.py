@@ -141,6 +141,13 @@ class NeRFSystem(LightningModule):
             img = results[f'rgb_{typ}'].view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
             img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
             depth = visualize_depth(results[f'depth_{typ}'].view(H, W)) # (3, H, W)
+            print("img gt deth before",img_gt.shape, depth.shape)
+
+            if self.hparams.dataset_name == 'objectron':
+                 img_gt = torch.rot90(img_gt.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+                 depth = torch.rot90(depth.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+                 img = torch.rot90(img.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+
             images = {"gt":img_gt, "predicted": img, "depth": depth}
             self.logger.experiment.log({
                 "Val images": [wandb.Image(img, caption=caption)

@@ -20,6 +20,7 @@ from losses import loss_dict
 
 # metrics
 from metrics import *
+# torch.set_printoptions(profile="full")
 
 os.environ[
     "TORCH_DISTRIBUTED_DEBUG"
@@ -64,26 +65,26 @@ class NeRFSystem(LightningModule):
         # self.nerf_coarse = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
         #                         in_channels_dir=6*hparams.N_emb_dir+3)
 
-        self.nerf_coarse = CodeNeRF()
+        # self.nerf_coarse = CodeNeRF()
 
-        # self.nerf_coarse = ConditionalNeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
-        #                                     in_channels_dir=6*hparams.N_emb_dir+3)
+        self.nerf_coarse = ConditionalNeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
+                                            in_channels_dir=6*hparams.N_emb_dir+3)
         self.models = {'coarse': self.nerf_coarse}
         load_ckpt(self.nerf_coarse, hparams.weight_path, 'nerf_coarse')
 
         if hparams.N_importance > 0:
             # self.nerf_fine = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
             #                       in_channels_dir=6*hparams.N_emb_dir+3)
-            self.nerf_fine = CodeNeRF()
-            # self.nerf_fine = ConditionalNeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
-            #                                 in_channels_dir=6*hparams.N_emb_dir+3)
+            # self.nerf_fine = CodeNeRF()
+            self.nerf_fine = ConditionalNeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
+                                            in_channels_dir=6*hparams.N_emb_dir+3)
             self.models['fine'] = self.nerf_fine
             load_ckpt(self.nerf_fine, hparams.weight_path, 'nerf_fine')
         
-        # if hparams.latent_code_path:
-        #     self.shape_codes, self.texture_codes = load_latent_codes(hparams.latent_code_path)
-        # else:
-        #     self.shape_codes, self.texture_codes = make_codes(hparams.latent_dim, hparams.emb_dim)
+        if hparams.ckpt_path:
+            self.shape_codes, self.texture_codes = load_latent_codes(hparams.ckpt_path)
+        else:
+            self.shape_codes, self.texture_codes = make_codes(hparams.latent_dim, hparams.emb_dim)
         # self.automatic_optimization = False
         self.log_frequency = 10
         self.image_encoder = hparams.use_image_encoder
@@ -241,21 +242,21 @@ class NeRFSystem(LightningModule):
 
     #Training step where every step i.e. 1024 rays we aggregate the rgb predictions and compute loss once at the end
 
-    def training_step(self, batch, batch_nb, optimizer_idx):
+    def training_step(self, batch, batch_nb):
         rays, rgbs, obj_idx = batch['rays'], batch['rgbs'], batch['obj_id']
         rays = rays.squeeze(0)
         rgbs = rgbs.squeeze(0)
         pred_image = {}
-
         pred_image['rgb_coarse'] = torch.empty((rgbs.shape)).type_as(rgbs)
-        pred_image['rgb_fine'] = torch.empty((rgbs.shape)).type_as(rgbs)
+        if self.hparams.N_importance>0:
+            pred_image['rgb_fine'] = torch.empty((rgbs.shape)).type_as(rgbs)
 
         if self.image_encoder:
             latents = self.resnet_encoder(batch['enc_img'])
 
         indices = torch.randperm(rgbs.shape[0])
 
-        rgbs = rgbs[indices]
+        rgbs = rgbs[indices].float()
         rays = rays[indices]
         if self.image_encoder:
             shape_codes = latents["density"].squeeze(0)
@@ -278,7 +279,7 @@ class NeRFSystem(LightningModule):
             reg_loss = torch.norm(self.shape_codes(obj_idx), dim=-1) + torch.norm(self.texture_codes(obj_idx), dim=-1)
             loss_reg = 1e-4 * torch.mean(reg_loss)
             loss = loss_img + loss_reg
-                
+
         with torch.no_grad():
             typ = 'fine' if 'rgb_fine' in results else 'coarse'
             psnr_ = psnr(pred_image[f'rgb_{typ}'], rgbs)
@@ -370,7 +371,7 @@ def main(hparams):
                       max_epochs=hparams.num_epochs,
                       limit_val_batches=50,
                       callbacks=callbacks,
-                    #   resume_from_checkpoint=hparams.ckpt_path,
+                      resume_from_checkpoint=hparams.ckpt_path,
                       logger=wandb_logger,
                       accelerator='auto',
                       devices=hparams.num_gpus,

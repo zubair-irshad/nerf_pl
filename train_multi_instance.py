@@ -1,4 +1,6 @@
 import os
+import os
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 from pytorch_lightning.accelerators import accelerator
 from opt import get_opts
@@ -9,14 +11,14 @@ from torch.utils.data import DataLoader
 from datasets import dataset_dict
 # models
 from models.nerf import *
-from models.rendering_compositional import *
+from models.rendering_instance import *
 from models.code_library import *
-from utils.train_helper import visualize_val_image
+from utils.train_helper import visualize_val_image, visualize_val_image_instance
 # optimizer, scheduler, visualization
 from utils import *
 
 # losses
-from losses import get_loss
+from losses import get_loss, get_instance_loss
 
 # metrics
 from metrics import *
@@ -35,27 +37,28 @@ class NeRFSystem(LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.save_hyperparameters(hparams)
-        print("hparams", hparams)
         #only do this for loading checkpoint/inference
-        # hparams = DotMap(hparams)
+        if type(hparams) is dict:
+            hparams = DotMap(hparams)
         # self.loss = loss_dict['color'](coef=1)
-        self.loss = get_loss(hparams)
+        self.loss = get_instance_loss(hparams)
 
         self.embedding_xyz = Embedding(hparams.N_emb_xyz)
         self.embedding_dir = Embedding(hparams.N_emb_dir)
         self.embeddings = {'xyz': self.embedding_xyz,
                            'dir': self.embedding_dir}
 
-        self.nerf_coarse = ObjectNeRF(hparams)
+        self.nerf_coarse = InstanceConditionalNeRF(hparams)
         self.models = {'coarse': self.nerf_coarse}
         # load_ckpt(self.nerf_coarse, hparams.weight_path, 'nerf_coarse')
 
         if hparams.N_importance > 0:
-            self.nerf_fine = ObjectNeRF(hparams)
+            self.nerf_fine = InstanceConditionalNeRF(hparams)
             self.models['fine'] = self.nerf_fine
             # load_ckpt(self.nerf_fine, hparams.weight_path, 'nerf_fine')
 
-        self.code_library = CodeLibrary(hparams)
+        # self.code_library = CodeLibrary(hparams)
+        self.code_library = CodeLibraryShapeAppearance(hparams)
 
         self.models_to_train = [
             self.models,
@@ -112,9 +115,9 @@ class NeRFSystem(LightningModule):
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
-                          shuffle=True,
-                          num_workers=6,
-                          batch_size=self.hparams.batch_size,
+                          shuffle=False,
+                          num_workers=1,
+                          batch_size=1,
                           pin_memory=True)
 
     def val_dataloader(self):
@@ -125,9 +128,41 @@ class NeRFSystem(LightningModule):
                           pin_memory=True)
     
     def training_step(self, batch, batch_nb):
-        rays, rgbs = batch["rays"], batch["rgbs"]
-        rays = rays.squeeze()  # (H*W, 3)
-        rgbs = rgbs.squeeze()  # (H*W, 3)
+        print("batch_nb", batch_nb)
+        print("=================================\n\n")
+        # rays, rgbs = batch["rays"], batch["rgbs"]
+        # rays = rays.squeeze()  # (H*W, 3)
+        # rgbs = rgbs.squeeze()  # (H*W, 3)
+        # pred_image = {}
+        # pred_image['rgb_coarse'] = torch.empty((rgbs.shape)).type_as(rgbs)
+        # pred_image['opacity_instance_coarse'] = torch.empty((batch["instance_mask"].view(-1).shape)).type_as(rgbs)
+        
+        # if self.hparams.N_importance>0:
+        #     pred_image['rgb_fine'] = torch.empty((rgbs.shape)).type_as(rgbs)
+        #     pred_image['opacity_instance_fine'] = torch.empty((batch["instance_mask"].view(-1).shape)).type_as(rgbs)
+
+        # for k,v in batch.items():
+        #     # print("After", k,v.shape)
+        #     if k =="instance_ids":
+        #         print("instance idsss", v)
+        #     if k =='obj_id':
+        #         print("obj idddddddddddd",v)
+
+        # for k,v in batch.items():
+        #     print(k,v.shape)
+        #     if k=='obj_id':
+        #         print("obj_id", v)
+        #     if k=='instance_ids':
+        #         print("instance_ids", v)
+        # print("batch")
+        indices = torch.randperm(batch["rgbs"].squeeze().shape[0])
+        batch["rgbs"] = batch["rgbs"].squeeze()[indices].float()
+        batch["rays"] = batch["rays"].squeeze()[indices]
+        batch["instance_mask"] = batch["instance_mask"].view(-1)[indices]
+        batch["instance_mask_weight"] = batch["instance_mask_weight"].view(-1)[indices]
+
+        # for k,v in batch.items():
+        #     print("After", k,v.shape)
 
         extra_info = dict()
         extra_info["is_eval"] = False
@@ -136,26 +171,55 @@ class NeRFSystem(LightningModule):
         extra_info["frustum_bound_th"] = -1
         extra_info.update(self.code_library(batch))
 
-        results = self(rays, extra_info)
+        # for i in range(0, rays.shape[0], self.hparams.batch_size):
+        #     # if self.image_encoder:
+        #     #     results = self(rays[i:i+self.hparams.batch_size], extra_info)
+        #     # else:
+        #     results = self(rays[i:i+self.hparams.batch_size], extra_info)
+            
+        #     pred_image['rgb_coarse'][i:i+self.hparams.batch_size] = results['rgb_coarse']
+        #     pred_image['opacity_instance_coarse'][i:i+self.hparams.batch_size] = results["opacity_instance_coarse"]
+        #     if 'rgb_fine' in results:
+        #         pred_image['rgb_fine'][i:i+self.hparams.batch_size] = results['rgb_fine']        
+        #         pred_image['opacity_instance_fine'][i:i+self.hparams.batch_size] = results["opacity_instance_fine"]
+        # loss_sum, loss_dict = self.loss(pred_image, batch)
+        
+        results = self(batch["rays"], extra_info)
         loss_sum, loss_dict = self.loss(results, batch)
-
+        # results = self(rays, extra_info)
         with torch.no_grad():
             typ = 'fine' if 'rgb_fine' in results else 'coarse'
-            psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
+            masked_rgb = torch.ones(results[f'rgb_instance_{typ}'].shape).type_as(batch["rgbs"])
+            mask = batch["instance_mask"]
+            masked_rgb[mask] = batch["rgbs"][mask]
+            psnr_ = psnr(results[f'rgb_instance_{typ}'], masked_rgb)
 
         self.log('lr', get_learning_rate(self.optimizer))
         self.log('train/loss', loss_sum)
         for k, v in loss_dict.items():
             self.log(f"train/{k}", v)
         self.log('train/psnr', psnr_, prog_bar=True)
+        print("============================\n\n\n")
 
         return loss_sum
 
     def validation_step(self, batch, batch_nb):
+
+        # for k,v in batch.items():
+        #     # print("After", k,v.shape)
+        #     if k =='obj_id':
+        #         print("VALLLLLLLLLLLLLLLLLLLL")
+        #         print("obj idd",v)
+        
+        print("================================\n\n\n")
+        print("HEREEEEEEEEEEEEEEEEEEE\n\n\n\n\n")
+        for k,v in batch.items():
+            if k =='new_img_wh':
+                continue
+            print(k,v.shape)
         rays, rgbs = batch['rays'], batch['rgbs']
         rays = rays.squeeze() # (H*W, 3)
         rgbs = rgbs.squeeze() # (H*W, 3)
-
         extra_info = dict()
         extra_info["is_eval"] = True
         extra_info["rays_in_bbox"] = False
@@ -168,17 +232,23 @@ class NeRFSystem(LightningModule):
         log = {"val_loss": loss_sum}
         log.update(loss_dict)
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
-    
-        if batch_nb == 0:
-
-            grid_img = visualize_val_image(
-                self.hparams.img_wh, batch, results, typ=typ
+        new_img_wh = batch["new_img_wh"]
+        random_batch = np.random.randint(10, size=1)[0]
+        # random_batch = 0
+        if batch_nb == random_batch:
+            grid_img = visualize_val_image_instance(
+                new_img_wh, batch, results, typ=typ
             )
             self.logger.experiment.log({
                 "val/GT_pred images": wandb.Image(grid_img)
             })
-            
-        psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
+
+        masked_rgb = torch.ones(results[f'rgb_instance_{typ}'].shape).type_as(rgbs)
+        mask = batch["instance_mask"].view(-1)
+        masked_rgb[mask] = rgbs[mask]
+        psnr_ = psnr(results[f'rgb_instance_{typ}'], masked_rgb)
+
+        # psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
         log['val_psnr'] = psnr_
 
         return log
@@ -201,7 +271,7 @@ def main(hparams):
         # save_top_k=5,
         save_top_k=-1,
         save_last=True,
-        every_n_epochs=1,
+        every_n_epochs=500,
         save_on_train_epoch_end=True,
     )
     pbar = TQDMProgressBar(refresh_rate=1)
@@ -211,6 +281,7 @@ def main(hparams):
     trainer = Trainer(max_epochs=hparams.num_epochs,
                       callbacks=callbacks,
                       resume_from_checkpoint=hparams.ckpt_path,
+                    #   limit_val_batches=10,
                       logger=wandb_logger,
                       enable_model_summary=False,
                       gpus=hparams.num_gpus,
@@ -219,7 +290,6 @@ def main(hparams):
                       num_sanity_val_steps=1,
                       benchmark=True,
                       profiler="simple" if hparams.num_gpus==1 else None,
-                    #   val_check_interval=0.75,
                       strategy=DDPPlugin(find_unused_parameters=False) if hparams.num_gpus>1 else None)
     trainer.fit(system)
 
@@ -227,4 +297,3 @@ def main(hparams):
 if __name__ == '__main__':
     hparams = get_opts()
     main(hparams)
-

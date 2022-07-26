@@ -1,7 +1,7 @@
 import torch
 from einops import rearrange, reduce, repeat
 
-__all__ = ['render_rays', 'render_rays_conditional']
+__all__ = ['render_rays', 'render_rays_conditional', 'volume_rendering']
 
 
 def sample_pdf(bins, weights, N_importance, det=False, eps=1e-5):
@@ -378,3 +378,81 @@ def render_rays_conditional(models,
 
     return results
 
+
+def volume_rendering(models,
+                embeddings,
+                rays,
+                shape_code,
+                app_code,
+                N_samples=64,
+                use_disp=False,
+                perturb=0,
+                noise_std=1,
+                N_importance=0,
+                chunk=1024*32,
+                white_back=True,
+                test_time=False,
+                **kwargs
+    ):
+    
+    embedding_xyz, embedding_dir = embeddings['xyz'], embeddings['dir']
+
+    # Decompose the inputs
+    N_rays = rays.shape[0]
+    rays_o, rays_d = rays[:, 0:3], rays[:, 3:6] # both (N_rays, 3)
+    near, far = rays[:, 6:7], rays[:, 7:8] # both (N_rays, 1)
+    # Embed direction
+    dir_embedded = embedding_dir(kwargs.get('view_dir', rays_d)) # (N_rays, embed_dir_channels)
+
+    rays_o = rearrange(rays_o, 'n1 c -> n1 1 c')
+    rays_d = rearrange(rays_d, 'n1 c -> n1 1 c')
+
+    # Sample depth points
+    z_steps = torch.linspace(0, 1, N_samples, device=rays.device) # (N_samples)
+    if not use_disp: # use linear sampling in depth space
+        z_vals = near * (1-z_steps) + far * z_steps
+    else: # use linear sampling in disparity space
+        z_vals = 1/(1/near * (1-z_steps) + 1/far * z_steps)
+
+    z_vals = z_vals.expand(N_rays, N_samples)
+
+    xyz_coarse = rays_o + rays_d * rearrange(z_vals, 'n1 n2 -> n1 n2 1')
+
+    N_samples_ = xyz_coarse.shape[1]
+    xyz_ = rearrange(xyz_coarse, 'n1 n2 c -> (n1 n2) c') # (N_rays*N_samples_, 3)
+    model = models['coarse']
+    # Perform model inference to get rgb and raw sigma
+    dir_embedded_ = repeat(dir_embedded, 'n1 c -> (n1 n2) c', n2=N_samples_)
+                    # (N_rays*N_samples_, embed_dir_channels)
+
+    B = xyz_.shape[0]
+    out_chunks = []
+    for i in range(0, B, chunk):
+        xyz_embedded = embedding_xyz(xyz_[i:i+chunk])
+        xyzdir_embedded = torch.cat([xyz_embedded,
+                                        dir_embedded_[i:i+chunk]], 1)
+        out_chunks += [model(xyzdir_embedded, shape_code, app_code)]
+
+    out = torch.cat(out_chunks, 0)
+    # out = out.view(N_rays, N_samples_, 4)
+    out = rearrange(out, '(n1 n2) c -> n1 n2 c', n1=N_rays, n2=N_samples_, c=4)
+    rgbs = out[..., :3] # (N_rays, N_samples_, 3)
+    sigmas = out[..., 3] # (N_rays, N_samples_)
+
+    deltas = z_vals[1:] - z_vals[:-1]
+    deltas = torch.cat([deltas, torch.ones_like(deltas[:1]) * 1e10])
+    alphas = 1 - torch.exp(-sigmas.squeeze(-1) * deltas)
+    trans = 1 - alphas + 1e-10
+    transmittance = torch.cat([torch.ones_like(trans[..., :1]), trans], -1)
+    accum_trans = torch.cumprod(transmittance, -1)[..., :-1]
+    weights = alphas * accum_trans
+    rgb_final = torch.sum(weights.unsqueeze(-1) * rgbs, -2)
+    depth_final = torch.sum(weights * z_vals, -1)
+    results = {}
+    typ = 'coarse'
+    if white_back:
+        weights_sum = weights.sum(1)
+        rgb_final = rgb_final + 1 - weights_sum.unsqueeze(-1)
+    results[f'rgb_{typ}'] = rgb_final
+    results[f'depth_{typ}'] = depth_final
+    return results

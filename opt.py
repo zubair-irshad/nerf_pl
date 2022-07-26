@@ -7,7 +7,7 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi'],
+                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi', 'objectron_multi'],
                         help='which dataset to train/val')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[640, 480],
                         help='resolution (img_w, img_h) of the image')
@@ -32,14 +32,18 @@ def get_opts():
     parser.add_argument('--noise_std', type=float, default=1.0,
                         help='std dev of noise added to regularize sigma')
 
-    parser.add_argument('--crop_img', default=True, action="store_true",
+    parser.add_argument('--crop_img', default=False, action="store_true",
                         help='initially crop the image or not')
     parser.add_argument('--use_image_encoder', default=False, action="store_true",
                         help='initially crop the image or not')
+    parser.add_argument('--latent_code_path', type=str, default=None,
+                        help='which category to use')
 
     # params for SRN multicat training
 
     parser.add_argument('--splits', type=str, default=None,
+                        help='which category to use')
+    parser.add_argument('--val_splits', type=str, default=None,
                         help='which category to use')
     parser.add_argument('--cat', type=str, default=None,
                         help='which category to use')
@@ -80,8 +84,6 @@ def get_opts():
     parser.add_argument('--prefixes_to_ignore', nargs='+', type=str, default=['loss'],
                         help='the prefixes to ignore in the checkpoint state dict')
     parser.add_argument('--weight_path', type=str, default=None,
-                        help='pretrained model weight to load (do not load optimizers, etc)')
-    parser.add_argument('--latent_code_path', type=str, default=None,
                         help='pretrained model weight to load (do not load optimizers, etc)')
 
     

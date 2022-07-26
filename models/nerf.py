@@ -374,6 +374,7 @@ class CodeNeRF(nn.Module):
         self.encoding_shape = nn.Linear(W,W)
         # self.sigma = nn.Sequential(nn.Linear(W,1), nn.Softplus())
         self.sigma = nn.Sequential(nn.Linear(W,1))
+        # self.sigma = nn.Sequential(nn.Linear(W,1), nn.Softplus())
         self.encoding_viewdir = nn.Sequential(nn.Linear(W+self.d_viewdir, W), nn.ReLU())
         for j in range(texture_blocks):
             layer = nn.Sequential(nn.Linear(latent_dim, W), nn.ReLU())
@@ -381,6 +382,7 @@ class CodeNeRF(nn.Module):
             layer = nn.Sequential(nn.Linear(W,W), nn.ReLU())
             setattr(self, f"texture_layer_{j+1}", layer)
         self.rgb = nn.Sequential(nn.Linear(W, W//2), nn.ReLU(), nn.Linear(W//2, 3),  nn.Sigmoid())
+        # self.rgb = nn.Sequential(nn.Linear(W, W//2), nn.ReLU(), nn.Linear(W//2, 3))
         
     def forward(self, x, shape_latent, texture_latent):
 
@@ -409,3 +411,479 @@ class CodeNeRF(nn.Module):
         rgbs = self.rgb(y)
         out = torch.cat([rgbs, sigmas], -1)
         return out
+
+class ObjectBckgNeRF(nn.Module):
+    def __init__(
+        self,
+        hparams
+    ):
+        super(ObjectBckgNeRF, self).__init__()
+        self.hparams = hparams
+        self.use_voxel_embedding = False
+        # initialize neural model with config
+        self.initialize_scene_branch(hparams)
+        self.initialize_object_branch(hparams)
+
+    def initialize_scene_branch(self, hparams):
+        #background latent encoding
+        N_obj_code_length = hparams.N_obj_code_length
+
+        self.D = hparams.D
+        self.W = hparams.W
+        self.N_freq_xyz = hparams.N_freq_xyz
+        self.N_freq_dir = hparams.N_freq_dir
+        self.skips = hparams.skips
+        # embedding size for voxel representation
+        voxel_emb_size = 0
+        # embedding size for NeRF xyz
+        xyz_emb_size = 3 + 3 * self.N_freq_xyz * 2
+        self.xyz_emb_size = xyz_emb_size
+
+        self.in_channels_xyz = xyz_emb_size + voxel_emb_size + 128
+        self.in_channels_dir = 3 + 3 * self.N_freq_dir * 2
+
+        self.activation = nn.LeakyReLU(inplace=True)
+
+        # xyz encoding layers
+        for i in range(self.D):
+            if i == 0:
+                layer = nn.Linear(self.in_channels_xyz, self.W)
+            elif i in self.skips:
+                layer = nn.Linear(self.W + self.in_channels_xyz, self.W)
+            else:
+                layer = nn.Linear(self.W, self.W)
+            layer = nn.Sequential(layer, self.activation)
+            setattr(self, f"xyz_encoding_{i+1}", layer)
+        self.xyz_encoding_final = nn.Linear(self.W, self.W)
+
+        # output layers
+        self.sigma = nn.Linear(self.W, 1)
+        self.rgb = nn.Sequential(nn.Linear(self.W // 2, 3), nn.Sigmoid())
+        # direction encoding layers
+        self.dir_encoding = nn.Sequential(
+            nn.Linear(self.W + self.in_channels_dir, self.W // 2), self.activation
+        )
+
+    def initialize_object_branch(self, hparams):
+        # instance encoding
+        N_obj_code_length = hparams.N_obj_code_length
+        
+        inst_voxel_emb_size = 0
+        self.inst_channel_in = (
+            self.xyz_emb_size + N_obj_code_length + inst_voxel_emb_size
+        )
+        self.inst_D = hparams.inst_D
+        self.inst_W = hparams.inst_W
+        self.inst_skips = hparams.inst_skips
+
+        for i in range(self.inst_D):
+            if i == 0:
+                layer = nn.Linear(self.inst_channel_in, self.inst_W)
+            elif i in self.inst_skips:
+                layer = nn.Linear(self.inst_W + self.inst_channel_in, self.inst_W)
+            else:
+                layer = nn.Linear(self.inst_W, self.inst_W)
+            layer = nn.Sequential(layer, self.activation)
+            setattr(self, f"instance_encoding_{i+1}", layer)
+        self.instance_encoding_final = nn.Sequential(
+            nn.Linear(self.inst_W, self.inst_W),
+        )
+        self.instance_sigma = nn.Linear(self.inst_W, 1)
+
+        self.inst_dir_encoding = nn.Sequential(
+            nn.Linear(self.inst_W + self.in_channels_dir, self.inst_W // 2),
+            self.activation,
+        )
+        self.inst_rgb = nn.Sequential(nn.Linear(self.inst_W // 2, 3), nn.Sigmoid())
+
+    def forward(self, inputs, sigma_only=False):
+        output_dict = {}
+        input_xyz = inputs["emb_xyz"]
+        bckg_code = inputs["bckg_code"]
+        input_dir = inputs.get("emb_dir", None)
+
+        input_xyz = torch.cat([input_xyz, bckg_code], -1)
+        xyz_ = input_xyz
+        for i in range(self.D):
+            if i in self.skips:
+                xyz_ = torch.cat([input_xyz, xyz_], -1)
+            xyz_ = getattr(self, f"xyz_encoding_{i+1}")(xyz_)
+
+        sigma = self.sigma(xyz_)
+        output_dict["sigma"] = sigma
+
+        if sigma_only:
+            return output_dict
+
+        xyz_encoding_final = self.xyz_encoding_final(xyz_)
+
+        dir_encoding_input = torch.cat([xyz_encoding_final, input_dir], -1)
+        dir_encoding = self.dir_encoding(dir_encoding_input)
+        rgb = self.rgb(dir_encoding)
+        output_dict["rgb"] = rgb
+
+        return output_dict
+
+    def forward_instance(self, inputs, sigma_only=False):
+        output_dict = {}
+        emb_xyz = inputs["emb_xyz"]
+        input_dir = inputs.get("emb_dir", None)
+        obj_code = inputs["obj_code"]
+        if self.use_voxel_embedding:
+            obj_voxel = inputs["obj_voxel"]
+            input_x = torch.cat([emb_xyz, obj_voxel, obj_code], -1)
+        else:
+            input_x = torch.cat([emb_xyz, obj_code], -1)
+
+        x_ = input_x
+
+        for i in range(self.inst_D):
+            if i in self.inst_skips:
+                x_ = torch.cat([input_x, x_], -1)
+            x_ = getattr(self, f"instance_encoding_{i+1}")(x_)
+        inst_sigma = self.instance_sigma(x_)
+        output_dict["inst_sigma"] = inst_sigma
+
+        if sigma_only:
+            return output_dict
+
+        x_final = self.instance_encoding_final(x_)
+        dir_encoding_input = torch.cat([x_final, input_dir], -1)
+        dir_encoding = self.inst_dir_encoding(dir_encoding_input)
+        rgb = self.inst_rgb(dir_encoding)
+        output_dict["inst_rgb"] = rgb
+
+        return output_dict
+
+class ObjectBckgNeRFConditional(nn.Module):
+    def __init__(
+        self,
+        hparams
+    ):
+        super(ObjectBckgNeRFConditional, self).__init__()
+        self.hparams = hparams
+        self.use_voxel_embedding = False
+        # initialize neural model with config
+        self.initialize_scene_branch(hparams)
+        self.initialize_object_branch(hparams)
+
+    def initialize_scene_branch(self, hparams):
+        #background latent encoding
+        N_obj_code_length = hparams.N_obj_code_length
+
+        self.D = hparams.D
+        self.W = hparams.W
+        self.N_freq_xyz = hparams.N_freq_xyz
+        self.N_freq_dir = hparams.N_freq_dir
+        self.skips = hparams.skips
+        # embedding size for voxel representation
+        voxel_emb_size = 0
+        # embedding size for NeRF xyz
+        xyz_emb_size = 3 + 3 * self.N_freq_xyz * 2
+        self.xyz_emb_size = xyz_emb_size
+
+        self.in_channels_xyz = xyz_emb_size + voxel_emb_size + 128
+        self.in_channels_dir = 3 + 3 * self.N_freq_dir * 2
+
+        self.activation = nn.LeakyReLU(inplace=True)
+
+        # xyz encoding layers
+        for i in range(self.D):
+            if i == 0:
+                layer = nn.Linear(self.in_channels_xyz, self.W)
+            elif i in self.skips:
+                layer = nn.Linear(self.W + self.in_channels_xyz, self.W)
+            else:
+                layer = nn.Linear(self.W, self.W)
+            layer = nn.Sequential(layer, self.activation)
+            setattr(self, f"xyz_encoding_{i+1}", layer)
+        self.xyz_encoding_final = nn.Linear(self.W, self.W)
+
+        # output layers
+        self.sigma = nn.Linear(self.W, 1)
+        self.rgb = nn.Sequential(nn.Linear(self.W // 2, 3), nn.Sigmoid())
+        # direction encoding layers
+        self.dir_encoding = nn.Sequential(
+            nn.Linear(self.W + self.in_channels_dir, self.W // 2), self.activation
+        )
+
+    def initialize_object_branch(self, hparams):
+        self.D = hparams.D
+        self.W = hparams.W
+        self.N_freq_xyz = hparams.N_freq_xyz
+        self.N_freq_dir = hparams.N_freq_dir
+        self.skips = hparams.skips
+        # embedding size for voxel representation
+        voxel_emb_size = 0
+        # embedding size for NeRF xyz
+        xyz_emb_size = 3 + 3 * self.N_freq_xyz * 2
+        self.xyz_emb_size = xyz_emb_size
+        N_obj_code_length = hparams.N_obj_code_length
+        self.activation = nn.LeakyReLU(inplace=True)
+        self.in_channels_xyz = xyz_emb_size + voxel_emb_size + N_obj_code_length
+        in_channels_dir = 3 + 3 * self.N_freq_dir * 2
+        self.in_channels_dir = in_channels_dir + N_obj_code_length
+        
+        inst_voxel_emb_size = 0
+        self.inst_channel_in = (
+            self.xyz_emb_size + N_obj_code_length + inst_voxel_emb_size
+        )
+        self.inst_D = hparams.inst_D
+        self.inst_W = hparams.inst_W
+        self.inst_skips = hparams.inst_skips
+
+        for i in range(self.inst_D):
+            if i == 0:
+                layer = nn.Linear(self.inst_channel_in, self.inst_W)
+            elif i in self.inst_skips:
+                layer = nn.Linear(self.inst_W + self.inst_channel_in, self.inst_W)
+            else:
+                layer = nn.Linear(self.inst_W, self.inst_W)
+            layer = nn.Sequential(layer, self.activation)
+            setattr(self, f"instance_encoding_{i+1}", layer)
+        
+        self.instance_encoding_final = nn.Sequential(
+            nn.Linear(self.inst_W, self.inst_W),
+        )
+        self.instance_sigma = nn.Linear(self.inst_W, 1)
+
+        self.inst_dir_encoding = nn.Sequential(
+            nn.Linear(self.inst_W + self.in_channels_dir, self.inst_W // 2),
+            self.activation,
+        )
+        self.inst_rgb = nn.Sequential(nn.Linear(self.inst_W // 2, 3), nn.Sigmoid())
+
+    def forward_instance(self, inputs, sigma_only=False):
+        output_dict = {}
+        emb_xyz = inputs["emb_xyz"]
+        input_dir = inputs.get("emb_dir", None)
+        obj_code_shape = inputs["obj_code_shape"]
+        obj_code_appearance = inputs["obj_code_appearance"]
+        if self.use_voxel_embedding:
+            obj_voxel = inputs["obj_voxel"]
+            input_x = torch.cat([emb_xyz, obj_voxel, obj_code_shape], -1)
+        else:
+            input_x = torch.cat([emb_xyz, obj_code_shape], -1)
+
+        x_ = input_x
+
+        for i in range(self.inst_D):
+            if i in self.inst_skips:
+                x_ = torch.cat([input_x, x_], -1)
+            x_ = getattr(self, f"instance_encoding_{i+1}")(x_)
+        inst_sigma = self.instance_sigma(x_)
+        output_dict["inst_sigma"] = inst_sigma
+
+        if sigma_only:
+            return output_dict
+
+        x_final = self.instance_encoding_final(x_)
+        dir_encoding_input = torch.cat([x_final, input_dir, obj_code_appearance], -1)
+        dir_encoding = self.inst_dir_encoding(dir_encoding_input)
+        rgb = self.inst_rgb(dir_encoding)
+        output_dict["inst_rgb"] = rgb
+
+        return output_dict
+
+    def forward(self, inputs, sigma_only=False):
+        output_dict = {}
+        input_xyz = inputs["emb_xyz"]
+        bckg_code = inputs["bckg_code"]
+        input_dir = inputs.get("emb_dir", None)
+
+        input_xyz = torch.cat([input_xyz, bckg_code], -1)
+        xyz_ = input_xyz
+        for i in range(self.D):
+            if i in self.skips:
+                xyz_ = torch.cat([input_xyz, xyz_], -1)
+            xyz_ = getattr(self, f"xyz_encoding_{i+1}")(xyz_)
+
+        sigma = self.sigma(xyz_)
+        output_dict["sigma"] = sigma
+
+        if sigma_only:
+            return output_dict
+
+        xyz_encoding_final = self.xyz_encoding_final(xyz_)
+
+        dir_encoding_input = torch.cat([xyz_encoding_final, input_dir], -1)
+        dir_encoding = self.dir_encoding(dir_encoding_input)
+        rgb = self.rgb(dir_encoding)
+        output_dict["rgb"] = rgb
+
+        return output_dict
+
+
+class InstanceNeRF(nn.Module):
+    def __init__(
+        self,
+        hparams
+    ):
+        super(InstanceNeRF, self).__init__()
+        self.hparams = hparams
+        self.use_voxel_embedding = False
+        self.initialize_object_branch(hparams)
+
+    def initialize_object_branch(self, hparams):
+        self.D = hparams.D
+        self.W = hparams.W
+        self.N_freq_xyz = hparams.N_freq_xyz
+        self.N_freq_dir = hparams.N_freq_dir
+        self.skips = hparams.skips
+        # embedding size for voxel representation
+        voxel_emb_size = 0
+        # embedding size for NeRF xyz
+        xyz_emb_size = 3 + 3 * self.N_freq_xyz * 2
+        self.xyz_emb_size = xyz_emb_size
+        N_obj_code_length = hparams.N_obj_code_length
+        self.activation = nn.LeakyReLU(inplace=True)
+        self.in_channels_xyz = xyz_emb_size + voxel_emb_size + N_obj_code_length
+        self.in_channels_dir = 3 + 3 * self.N_freq_dir * 2
+        
+        inst_voxel_emb_size = 0
+        self.inst_channel_in = (
+            self.xyz_emb_size + N_obj_code_length + inst_voxel_emb_size
+        )
+        self.inst_D = hparams.inst_D
+        self.inst_W = hparams.inst_W
+        self.inst_skips = hparams.inst_skips
+
+        for i in range(self.inst_D):
+            if i == 0:
+                layer = nn.Linear(self.inst_channel_in, self.inst_W)
+            elif i in self.inst_skips:
+                layer = nn.Linear(self.inst_W + self.inst_channel_in, self.inst_W)
+            else:
+                layer = nn.Linear(self.inst_W, self.inst_W)
+            layer = nn.Sequential(layer, self.activation)
+            setattr(self, f"instance_encoding_{i+1}", layer)
+        self.instance_encoding_final = nn.Sequential(
+            nn.Linear(self.inst_W, self.inst_W),
+        )
+        self.instance_sigma = nn.Linear(self.inst_W, 1)
+
+        self.inst_dir_encoding = nn.Sequential(
+            nn.Linear(self.inst_W + self.in_channels_dir, self.inst_W // 2),
+            self.activation,
+        )
+        self.inst_rgb = nn.Sequential(nn.Linear(self.inst_W // 2, 3), nn.Sigmoid())
+
+    def forward_instance(self, inputs, sigma_only=False):
+        output_dict = {}
+        emb_xyz = inputs["emb_xyz"]
+        input_dir = inputs.get("emb_dir", None)
+        obj_code = inputs["obj_code"]
+        if self.use_voxel_embedding:
+            obj_voxel = inputs["obj_voxel"]
+            input_x = torch.cat([emb_xyz, obj_voxel, obj_code], -1)
+        else:
+            input_x = torch.cat([emb_xyz, obj_code], -1)
+
+        x_ = input_x
+
+        for i in range(self.inst_D):
+            if i in self.inst_skips:
+                x_ = torch.cat([input_x, x_], -1)
+            x_ = getattr(self, f"instance_encoding_{i+1}")(x_)
+        inst_sigma = self.instance_sigma(x_)
+        output_dict["inst_sigma"] = inst_sigma
+
+        if sigma_only:
+            return output_dict
+
+        x_final = self.instance_encoding_final(x_)
+        dir_encoding_input = torch.cat([x_final, input_dir], -1)
+        dir_encoding = self.inst_dir_encoding(dir_encoding_input)
+        rgb = self.inst_rgb(dir_encoding)
+        output_dict["inst_rgb"] = rgb
+
+        return output_dict
+
+
+class InstanceConditionalNeRF(nn.Module):
+    def __init__(
+        self,
+        hparams
+    ):
+        super(InstanceConditionalNeRF, self).__init__()
+        self.hparams = hparams
+        self.use_voxel_embedding = False
+        self.initialize_object_branch(hparams)
+
+    def initialize_object_branch(self, hparams):
+        self.D = hparams.D
+        self.W = hparams.W
+        self.N_freq_xyz = hparams.N_freq_xyz
+        self.N_freq_dir = hparams.N_freq_dir
+        self.skips = hparams.skips
+        # embedding size for voxel representation
+        voxel_emb_size = 0
+        # embedding size for NeRF xyz
+        xyz_emb_size = 3 + 3 * self.N_freq_xyz * 2
+        self.xyz_emb_size = xyz_emb_size
+        N_obj_code_length = hparams.N_obj_code_length
+        self.activation = nn.LeakyReLU(inplace=True)
+        self.in_channels_xyz = xyz_emb_size + voxel_emb_size + N_obj_code_length
+        in_channels_dir = 3 + 3 * self.N_freq_dir * 2
+        self.in_channels_dir = in_channels_dir + N_obj_code_length
+        
+        inst_voxel_emb_size = 0
+        self.inst_channel_in = (
+            self.xyz_emb_size + N_obj_code_length + inst_voxel_emb_size
+        )
+        self.inst_D = hparams.inst_D
+        self.inst_W = hparams.inst_W
+        self.inst_skips = hparams.inst_skips
+
+        for i in range(self.inst_D):
+            if i == 0:
+                layer = nn.Linear(self.inst_channel_in, self.inst_W)
+            elif i in self.inst_skips:
+                layer = nn.Linear(self.inst_W + self.inst_channel_in, self.inst_W)
+            else:
+                layer = nn.Linear(self.inst_W, self.inst_W)
+            layer = nn.Sequential(layer, self.activation)
+            setattr(self, f"instance_encoding_{i+1}", layer)
+        
+        self.instance_encoding_final = nn.Sequential(
+            nn.Linear(self.inst_W, self.inst_W),
+        )
+        self.instance_sigma = nn.Linear(self.inst_W, 1)
+
+        self.inst_dir_encoding = nn.Sequential(
+            nn.Linear(self.inst_W + self.in_channels_dir, self.inst_W // 2),
+            self.activation,
+        )
+        self.inst_rgb = nn.Sequential(nn.Linear(self.inst_W // 2, 3), nn.Sigmoid())
+
+    def forward_instance(self, inputs, sigma_only=False):
+        output_dict = {}
+        emb_xyz = inputs["emb_xyz"]
+        input_dir = inputs.get("emb_dir", None)
+        obj_code_shape = inputs["obj_code_shape"]
+        obj_code_appearance = inputs["obj_code_appearance"]
+        if self.use_voxel_embedding:
+            obj_voxel = inputs["obj_voxel"]
+            input_x = torch.cat([emb_xyz, obj_voxel, obj_code_shape], -1)
+        else:
+            input_x = torch.cat([emb_xyz, obj_code_shape], -1)
+
+        x_ = input_x
+
+        for i in range(self.inst_D):
+            if i in self.inst_skips:
+                x_ = torch.cat([input_x, x_], -1)
+            x_ = getattr(self, f"instance_encoding_{i+1}")(x_)
+        inst_sigma = self.instance_sigma(x_)
+        output_dict["inst_sigma"] = inst_sigma
+
+        if sigma_only:
+            return output_dict
+
+        x_final = self.instance_encoding_final(x_)
+        dir_encoding_input = torch.cat([x_final, input_dir, obj_code_appearance], -1)
+        dir_encoding = self.inst_dir_encoding(dir_encoding_input)
+        rgb = self.inst_rgb(dir_encoding)
+        output_dict["inst_rgb"] = rgb
+
+        return output_dict

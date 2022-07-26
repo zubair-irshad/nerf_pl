@@ -52,6 +52,14 @@ def get_optimizer_latent(hparams, shape_latent, appearance_latent):
 
     return latent_opt
 
+def get_optimizer_latent_opt(hparams, shape_latent, appearance_latent):
+    latent_opt = torch.optim.AdamW([
+            {'params':shape_latent, 'lr': hparams.latent_lr},
+            {'params':appearance_latent, 'lr':hparams.latent_lr}
+        ])
+
+    return latent_opt
+
 def get_scheduler(hparams, optimizer):
     eps = 1e-8
     if hparams.lr_scheduler == 'steplr':
@@ -126,6 +134,6 @@ def load_ckpt(model, ckpt_path, model_name='model', prefixes_to_ignore=[], load_
 
 def load_latent_codes(ckpt_path):
     checkpoint_latent_codes = torch.load(ckpt_path, map_location=torch.device('cpu'))
-    shape_code_params = checkpoint_latent_codes['state_dict']['shape_code.weight']
+    shape_code_params = checkpoint_latent_codes['state_dict']['shape_codes.weight']
     texture_code_params = checkpoint_latent_codes['state_dict']['texture_codes.weight']
     return shape_code_params, texture_code_params

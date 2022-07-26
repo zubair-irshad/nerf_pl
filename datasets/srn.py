@@ -59,7 +59,7 @@ def make_poses(base_dir):
     return all_c2w, focal, H, W
 
 class SRNDataset(Dataset):
-    def __init__(self, root_dir, split='train', img_wh=(128, 128), use_mask = False, crop_img = True):
+    def __init__(self, root_dir, split='train', img_wh=(128, 128), use_mask = False, crop_img = False):
         self.root_dir = root_dir
         self.split = split
         self.img_wh = img_wh
@@ -84,7 +84,10 @@ class SRNDataset(Dataset):
         
         w, h = self.img_wh
         # bounds, common for all scenes
-        # self.near = 0.3
+        # self.near = 0.8
+        # self.far = 1.8
+
+        # self.near = 0.2
         # self.far = 2.0
 
         self.near = 1.25

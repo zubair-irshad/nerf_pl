@@ -24,7 +24,7 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff', 'google_scanned', 'srn'],
+                        choices=['blender', 'llff', 'google_scanned', 'srn', 'objectron'],
                         help='which dataset to validate')
     parser.add_argument('--scene_name', type=str, default='test',
                         help='scene name, used as output folder name')
@@ -51,7 +51,7 @@ def get_opts():
     parser.add_argument('--ckpt_path', type=str, required=True,
                         help='pretrained checkpoint path to load')
 
-    parser.add_argument('--save_depth', default=False, action="store_true",
+    parser.add_argument('--save_depth', default=True, action="store_true",
                         help='whether to save depth prediction')
     parser.add_argument('--depth_format', type=str, default='pfm',
                         choices=['pfm', 'bytes'],
@@ -142,6 +142,7 @@ if __name__ == "__main__":
 
         img_pred_ = (img_pred * 255).astype(np.uint8)
         imgs += [img_pred_]
+        img_pred_save = np.rot90(img_pred_, axes=(1,0))
         imageio.imwrite(os.path.join(dir_name, f'{i:03d}.png'), img_pred_)
 
         if 'rgbs' in sample:
