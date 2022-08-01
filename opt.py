@@ -50,7 +50,7 @@ def get_opts():
 
     # params for latent codes:
     # 
-    parser.add_argument('--N_max_objs', type=int, default=64,
+    parser.add_argument('--N_max_objs', type=int, default=100,
                         help='maximum number of object instances in the dataset')
     parser.add_argument('--N_obj_code_length', type=int, default=64,
                         help='size of latent vector')
