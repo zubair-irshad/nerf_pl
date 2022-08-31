@@ -2,10 +2,31 @@ import torch
 from einops import rearrange, reduce, repeat
 from typing import List, Dict, Any, Optional
 from models.nerf import ObjectNeRF
+import torch.nn.functional as F
+import torch.nn as nn
 
 # __all__ = ['render_rays']
 __all__ = ["render_rays", "sample_pdf"]
 
+def apply_symmetry_transform(rays_o, rays_d, reflection_dim):
+    """ Applies symmetry transformation to a batch of 3D points.
+    Args:
+        x: point cloud with shape (..., 3)
+    Returns:
+        transformed point cloud with shape (..., 3)
+    """
+    # rays_o = torch.FloatTensor(rays_o)
+    # rays_d = torch.FloatTensor(rays_d)
+    canonical_symmetry_matrix = torch.eye(4).to(rays_o.device)
+    canonical_symmetry_matrix[reflection_dim, reflection_dim] *= -1
+    canonical_symmetry_matrix = canonical_symmetry_matrix.unsqueeze(0) # add batch dim
+
+    rays_o = F.pad(rays_o, (0, 1), mode='constant', value=0.0) # homogenise points
+    rays_d = F.pad(rays_d, (0, 1), mode='constant', value=1.0) # homogenise points
+
+    rays_o = torch.einsum('...ij,...j->...i', canonical_symmetry_matrix, rays_o)[..., :3]
+    rays_d = torch.einsum('...ij,...j->...i', canonical_symmetry_matrix, rays_d)[..., :3]
+    return rays_o, rays_d
 
 
 def sample_pdf(bins, weights, N_importance, det=False, eps=1e-5):
@@ -57,6 +78,8 @@ def inference_model(
     typ: str, 
     xyz: torch.Tensor, 
     rays_d: torch.Tensor, 
+    xyz_sym : torch.Tensor,
+    rays_d_sym : torch.Tensor,
     z_vals, 
     chunk: int,
     noise_std: float,
@@ -93,24 +116,35 @@ def inference_model(
     embedding_xyz, embedding_dir = embeddings["xyz"], embeddings["dir"]
     N_rays, N_samples_, _ = xyz.shape
     xyz_ = rearrange(xyz, 'n1 n2 c -> (n1 n2) c') # (N_rays*N_samples_, 3)
+    xyz_sym_ = rearrange(xyz_sym, 'n1 n2 c -> (n1 n2) c') # (N_rays*N_samples_, 3)
 
     # Embed direction
     dir_embedded = embedding_dir(rays_d)  # (N_rays, embed_dir_channels)
     dir_embedded_ = repeat(
         dir_embedded, "n1 1 c -> (n1 n2) c", n2=N_samples_
     )  # (N_rays*N_samples_, embed_dir_channels)
-    obj_codes = repeat(embedding_instance, "n1 c -> (n1 n2) c", n2=N_samples_)
 
+    dir_embedded_sym = embedding_dir(rays_d_sym)  # (N_rays, embed_dir_channels)
+    dir_embedded_sym_ = repeat(
+        dir_embedded_sym, "n1 1 c -> (n1 n2) c", n2=N_samples_
+    )  # (N_rays*N_samples_, embed_dir_channels)
+
+    obj_codes = repeat(embedding_instance, "n1 c -> (n1 n2) c", n2=N_samples_)
     # Perform model inference to get rgb and raw sigma
     B = xyz_.shape[0]
     out_chunks = []
     instance_sigma_chunk = []
     instance_rgb_chunk = []
+
+    instance_sigma_sym_chunk = []
+    instance_rgb_sym_chunk = []
+    
     sigma_chunks = []
     rgb_chunks = []
 
     for i in range(0, B, chunk):
         xyz_embedded = embedding_xyz(xyz_[i : i + chunk])
+        xyz_embedded_sym = embedding_xyz(xyz_sym_[i : i + chunk])
 
         output = model(
             {
@@ -121,6 +155,7 @@ def inference_model(
         rgb_chunks += [output["rgb"]]
         sigma_chunks += [output["sigma"]]
         if forward_instance:
+            print("obj_codes", obj_codes.shape, xyz_embedded.shape)
             inst_output = model.forward_instance(
                 {
                     "emb_xyz": xyz_embedded,
@@ -128,19 +163,31 @@ def inference_model(
                     "obj_code": obj_codes[i : i + chunk],
                 }
             )
+
+            inst_output_sym = model.forward_instance(
+                {
+                    "emb_xyz": xyz_embedded_sym,
+                    "emb_dir": dir_embedded_sym_[i : i + chunk],
+                    "obj_code": obj_codes[i : i + chunk],
+                }
+            )
+
             instance_sigma_chunk += [inst_output["inst_sigma"]]
             instance_rgb_chunk += [inst_output["inst_rgb"]]
+
+            instance_sigma_sym_chunk += [inst_output_sym["inst_sigma"]]
+            instance_rgb_sym_chunk += [inst_output_sym["inst_rgb"]]
 
     sigmas = torch.cat(sigma_chunks, 0).view(N_rays, N_samples_)
     rgbs = torch.cat(rgb_chunks, 0).view(N_rays, N_samples_, 3)
 
-    print("rgbs", rgbs.shape)
-    print("rgbs", sigmas.shape)
-
     if forward_instance:
         instance_sigma = torch.cat(instance_sigma_chunk, 0).view(N_rays, N_samples_)
         instance_rgb = torch.cat(instance_rgb_chunk, 0).view(N_rays, N_samples_, 3)
-
+        #print("instance_sigma", instance_sigma.shape, instance_rgb.shape)
+        instance_sigma_sym = torch.cat(instance_sigma_sym_chunk, 0).view(N_rays, N_samples_)
+        instance_rgb_sym = torch.cat(instance_rgb_sym_chunk, 0).view(N_rays, N_samples_, 3)
+        #print("instance_sigma_sym", instance_sigma_sym.shape, instance_rgb_sym.shape)
     # Convert these values using volume rendering (Section 4)
     deltas = z_vals[:, 1:] - z_vals[:, :-1] # (N_rays, N_samples_-1)
     delta_zero = torch.zeros_like(deltas[:, :1])
@@ -175,8 +222,6 @@ def inference_model(
     if white_back:
         rgb_map += 1-weights_sum.unsqueeze(1)
 
-    print("rgb_map", rgb_map.shape)
-    print("depth map", depth_map.shape)
     results[f'rgb_{typ}'] = rgb_map
     results[f'depth_{typ}'] = depth_map
     # if is_eval and forward_instance:
@@ -223,6 +268,12 @@ def inference_model(
         results[f"depth_instance_{typ}"] = depth_instance_map
         results[f"opacity_instance_{typ}"] = weights_sum_instance
 
+        results[f"instance_out_sym_{typ}"] = torch.cat((instance_sigma_sym.unsqueeze(-1), instance_rgb_sym), dim=-1)
+        results[f"instance_out_{typ}"] = torch.cat((instance_sigma.unsqueeze(-1), instance_rgb), dim=-1)
+
+        results[f"instance_out_sym_{typ}"] = instance_rgb_sym
+        results[f"instance_out_{typ}"] = instance_rgb
+        
         if rays_in_bbox:  # for pdf sampling, overwrite weights
             results[f"weights_{typ}"] = weights_instance
     return
@@ -269,8 +320,19 @@ def render_rays(models: Dict[str, ObjectNeRF],
     rays_o, rays_d = rays[:, 0:3], rays[:, 3:6] # both (N_rays, 3)
     near, far = rays[:, 6:7], rays[:, 7:8] # both (N_rays, 1)
 
+    rays_o_sym, rays_d_sym = apply_symmetry_transform(rays_o, rays_d, 2)
+
     rays_o = rearrange(rays_o, 'n1 c -> n1 1 c')
     rays_d = rearrange(rays_d, 'n1 c -> n1 1 c')
+
+    rays_o_sym = rearrange(rays_o_sym, 'n1 c -> n1 1 c')
+    rays_d_sym = rearrange(rays_d_sym, 'n1 c -> n1 1 c')
+
+    # mae = nn.L1Loss()
+
+    # print("mae", mae(rays_o, rays_o_sym))
+    # print("mae dir", mae(rays_d, rays_d_sym))
+
 
     # Sample depth points
     z_steps = torch.linspace(0, 1, N_samples, device=rays.device) # (N_samples)
@@ -292,6 +354,12 @@ def render_rays(models: Dict[str, ObjectNeRF],
 
     xyz_coarse = rays_o + rays_d * rearrange(z_vals, 'n1 n2 -> n1 n2 1')
 
+    xyz_coarse_symm = rays_o_sym + rays_d_sym * rearrange(z_vals, 'n1 n2 -> n1 n2 1')
+
+
+    # mae = nn.L1Loss()
+    # print("mae xyz", mae(xyz_coarse, xyz_coarse_symm))
+
     results = {}
     inference_model(
         results=results,
@@ -300,6 +368,8 @@ def render_rays(models: Dict[str, ObjectNeRF],
         typ="coarse",
         xyz=xyz_coarse,
         rays_d=rays_d,
+        xyz_sym = xyz_coarse_symm,
+        rays_d_sym = rays_d_sym,
         z_vals=z_vals,
         chunk=chunk,
         noise_std=noise_std,

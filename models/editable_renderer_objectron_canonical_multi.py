@@ -25,7 +25,7 @@ from datasets.ray_utils import get_ray_directions, get_rays
 # from models.multi_rendering_objectron import render_rays_multi
 
 #for only one shape code
-from models.multi_rendering import render_rays_multi
+from models.multi_rendering import render_rays_multi_cat
 from objectron.schema import annotation_data_pb2 as annotation_protocol
 
 def get_frame_annotation(annotation_filename):
@@ -140,7 +140,7 @@ class EditableRenderer:
     def __init__(self, config):
         # load config
         self.config = config
-        self.load_model(config.ckpt_path)
+        self.load_models(config.ckpt_path)
 
         # initialize rendering parameters
         # self.near = 0.02
@@ -148,7 +148,7 @@ class EditableRenderer:
 
         #For bottle
         self.near = 0.02
-        self.far = 1.0
+        self.far = 1
 
         self.object_to_remove = []
         self.active_object_ids = [0]
@@ -157,25 +157,52 @@ class EditableRenderer:
         self.object_bbox_ray_helpers = {}
         self.bbox_enlarge = 0.0
 
-    def load_model(self, ckpt_path):
-        self.system = NeRFSystem.load_from_checkpoint(
-            ckpt_path
-        ).cuda()
-        self.system.eval()
+    def load_models(self, ckpt_path):
+        self.models = {}
+        self.embeddings = {}
+        self.code_library = {}
+        # ckpt_folders = sorted(os.listdir(ckpt_path))
+        ckpt_folders = np.sort([f.name for f in os.scandir(ckpt_path)])
+        for i, ckpt_folder in enumerate(ckpt_folders):
+            print("ckpt_folder", ckpt_folder)
+            ckpt_last_path = os.path.join(ckpt_path, ckpt_folder, 'last.ckpt')
+
+            system = NeRFSystem.load_from_checkpoint(
+                ckpt_last_path
+            ).cuda()
+            system.eval()
+            self.models[i] = system.models
+            self.embeddings[i] = system.embeddings
+            self.code_library[i] = system.code_library
+            # self.systems.append(system)
+
+    # def load_frame_meta(self):
+    #     instance_name = 'cup_batch-3_2'
+    #     self.base_dir = '/home/ubuntu/nerf_pl/data/objectron/'+ instance_name
+    #             #json_files = [pos_json for pos_json in os.listdir(base_dir) if pos_json.endswith('.json')]
+    #     # self.axis_align_mat = torch.FloatTensor(np.linalg.inv(read_objectron_info(self.base_dir, instance_name)))
+    #     sfm_arframe_filename = self.base_dir + '/'+instance_name+'_sfm_arframe.pbdata'
+    #     frame_data = load_frame_data(sfm_arframe_filename)
+    #     all_c2w, self.all_focal = make_poses_bounds_array(frame_data, near=self.near, far=self.far)
+    #     self.poses = all_c2w
 
     def load_frame_meta(self):
-        instance_name = 'cereal_box_batch-1_31'
-        self.base_dir = '/home/ubuntu/nerf_pl/data/objectron/'+ instance_name
-                #json_files = [pos_json for pos_json in os.listdir(base_dir) if pos_json.endswith('.json')]
-        self.axis_align_mat = torch.FloatTensor(np.linalg.inv(read_objectron_info(self.base_dir, instance_name)))
-        sfm_arframe_filename = self.base_dir + '/'+instance_name+'_sfm_arframe.pbdata'
-        frame_data = load_frame_data(sfm_arframe_filename)
-        all_c2w, self.all_focal = make_poses_bounds_array(frame_data, near=self.near, far=self.far)
-        self.poses = all_c2w
+        self.poses = {}
+        self.all_focal = {}
+        base_folder = '/home/ubuntu/nerf_pl/data/objectron'
+        instance_names = np.sort([f.name for f in os.scandir(base_folder)])
+        for i, instance_name in enumerate(instance_names):
+            base_dir = base_folder + '/'+ instance_name
+            sfm_arframe_filename = base_dir + '/'+instance_name+'_sfm_arframe.pbdata'
+            frame_data = load_frame_data(sfm_arframe_filename)
+            all_c2w, all_focal = make_poses_bounds_array(frame_data, near=self.near, far=self.far)
+            self.poses[i] = all_c2w
+            self.all_focal[i] = all_focal
+            # self.poses = all_c2w
 
-    def get_camera_pose_focal_by_frame_idx(self, frame_idx):
-        focal = self.all_focal[frame_idx]* (self.config.img_wh[0]/1920)
-        return self.poses[frame_idx], focal
+    def get_camera_pose_focal_by_frame_idx(self, obj_id, frame_idx):
+        focal = self.all_focal[obj_id][frame_idx]* (self.config.img_wh[0]/1920)
+        return self.poses[obj_id][frame_idx], focal
 
     def scene_inference(
         self,
@@ -190,7 +217,7 @@ class EditableRenderer:
         chunk = self.config.chunk
         for i in tqdm(range(0, B, self.config.chunk), disable=not show_progress):
             with torch.no_grad():
-                rendered_ray_chunks = render_rays_multi(
+                rendered_ray_chunks = render_rays_multi_cat(
                     models=self.system.models,
                     embeddings=self.system.embeddings,
                     code_library=self.system.code_library,
@@ -204,7 +231,6 @@ class EditableRenderer:
                     N_importance=self.config.N_importance,
                     chunk=self.config.chunk,  # chunk size is effective in val mode
                     white_back=False,
-                    bckg_img = bckg_img
                     **args,
                 )
 
@@ -226,11 +252,15 @@ class EditableRenderer:
             batch_near = near * torch.ones_like(rays_o[:, :1])
             batch_far = far* torch.ones_like(rays_o[:, :1])
             # rays_o = rays_o / self.scale_factor
-            rays_o, rays_d = transform_rays_to_bbox_coordinates_nocs(rays_o, rays_d, self.axis_align_mat.cuda())
+            axis_align_mat = self.object_bbox_ray_helpers[str(4)].axis_align_mat.copy()
+            axis_align_mat = torch.FloatTensor(np.linalg.inv(axis_align_mat))
+            rays_o, rays_d = transform_rays_to_bbox_coordinates_nocs(rays_o, rays_d, axis_align_mat.cuda())
             rays = torch.cat([rays_o, rays_d, batch_near, batch_far], 1)  # (H*W, 8)
 
         else:
-            rays_o, rays_d = transform_rays_to_bbox_coordinates_nocs(rays_o, rays_d, self.axis_align_mat.cuda())
+            axis_align_mat = self.object_bbox_ray_helpers[str(obj_id)].axis_align_mat.copy()
+            axis_align_mat = torch.FloatTensor(np.linalg.inv(axis_align_mat))
+            rays_o, rays_d = transform_rays_to_bbox_coordinates_nocs(rays_o, rays_d, axis_align_mat.cuda())
             bbox_mask, bbox_batch_near, bbox_batch_far = self.object_bbox_ray_helpers[
                 str(obj_id)
             ].get_ray_bbox_intersections(
@@ -282,10 +312,10 @@ class EditableRenderer:
         bckg_img = None,
         show_progress: bool = True,
         render_bg_only: bool = False,
-        render_obj_only: bool = True,
-        white_back: bool = True,
+        render_obj_only: bool = False,
+        white_back: bool = False,
     ):
-        directions = get_ray_directions(h, w, focal).cuda()  # (h, w, 3)
+        # directions = get_ray_directions(h, w, focal).cuda()  # (h, w, 3)
         Twc = camera_pose_Twc
         args = {}
         results = {}
@@ -300,8 +330,36 @@ class EditableRenderer:
         if render_obj_only:
             self.active_object_ids.remove(0)
 
-        processed_obj_id = []
+        print("active_object_ids", self.active_object_ids)
+
+        
+
+        models = []
+        embeddings = []
+        code_library = []
         for obj_id in self.active_object_ids:
+            if obj_id == 0:
+                models.append(self.models[4-1])
+                embeddings.append(self.embeddings[4-1])
+                code_library.append(self.code_library[4-1])
+            else:
+                models.append(self.models[obj_id-1])
+                embeddings.append(self.embeddings[obj_id-1])
+                code_library.append(self.code_library[obj_id-1])
+        
+        camera_pose_Twc = []
+        focal = []
+        for obj_id in self.active_object_ids:
+            if obj_id == 0:
+                camera_pose_Twc.append(self.poses[4-1][10])
+                focal.append(self.all_focal[4-1][10])
+            else:
+                camera_pose_Twc.append(self.poses[obj_id-1][10])
+                focal.append(self.all_focal[obj_id-1][10])
+
+
+        processed_obj_id = []
+        for j, obj_id in enumerate(self.active_object_ids):
             # count object duplication
             obj_duplication_cnt = np.sum(np.array(processed_obj_id) == obj_id)
             if obj_id == 0:
@@ -309,7 +367,7 @@ class EditableRenderer:
                 Tow = transform = np.eye(4)
                 print("OBJ 0")
             else:
-                print("OBJ 111111111")
+                print("obj_id", obj_id)
                 object_pose = self.object_pose_transform[
                     f"{obj_id}_{obj_duplication_cnt}"
                 ]
@@ -319,9 +377,11 @@ class EditableRenderer:
                 transform = np.linalg.inv(Tow_orig) @ object_pose @ Tow_orig
                 # transform = object_pose
                 Tow = np.linalg.inv(transform)
-
+                print("Tow", Tow)
+            directions = get_ray_directions(h, w, focal[j]).cuda()  # (h, w, 3)
             processed_obj_id.append(obj_id)
-            Toc = Tow @ Twc
+            Toc = Tow @ Twc[j]
+            # Toc = Tow @ Twc
             Toc = torch.from_numpy(Toc).float().cuda()[:3, :4]
             # all the rays_o and rays_d has been converted to NeRF scale
             rays_o, rays_d = get_rays(directions, Toc)
@@ -329,11 +389,13 @@ class EditableRenderer:
             # light anchor should also be transformed
             Tow = torch.from_numpy(Tow).float()
             transform = torch.from_numpy(transform).float()
-            obj_ids.append(obj_id)
+            if obj_id == 0:
+                obj_ids.append(0)
+            else:
+                obj_ids.append(1)
             rays_list.append(rays)
 
-        print("rays", rays.shape)
-
+        print("len(self embeddings)", len(embeddings), len(obj_ids), len(models))
         # split chunk
         B = rays_list[0].shape[0]
         chunk = self.config.chunk
@@ -341,10 +403,10 @@ class EditableRenderer:
         background_skip_bbox = self.get_skipping_bbox_helper()
         for i in tqdm(range(0, B, self.config.chunk), disable=not show_progress):
             with torch.no_grad():
-                rendered_ray_chunks = render_rays_multi(
-                    models=self.system.models,
-                    embeddings=self.system.embeddings,
-                    code_library=self.system.code_library,
+                rendered_ray_chunks = render_rays_multi_cat(
+                    models=models,
+                    embeddings=embeddings,
+                    code_library=code_library,
                     rays_list=[r[i : i + chunk] for r in rays_list],
                     obj_instance_ids=obj_ids,
                     N_samples=self.config.N_samples,
@@ -356,7 +418,7 @@ class EditableRenderer:
                     white_back=white_back,
                     background_skip_bbox=background_skip_bbox,
                     # bckg_img = bckg_img[i : i + chunk],
-                    bckg_img = bckg_img,
+                    # bckg_img = bckg_img,
                     **args,
                 )
             for k, v in rendered_ray_chunks.items():

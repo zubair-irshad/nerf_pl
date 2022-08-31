@@ -24,7 +24,7 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff', 'google_scanned', 'srn', 'objectron'],
+                        choices=['blender', 'llff', 'google_scanned', 'srn', 'objectron', 'llff_nsff'],
                         help='which dataset to validate')
     parser.add_argument('--scene_name', type=str, default='test',
                         help='scene name, used as output folder name')
@@ -32,7 +32,7 @@ def get_opts():
                         help='test or test_train')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[800, 800],
                         help='resolution (img_w, img_h) of the image')
-    parser.add_argument('--spheric_poses', default=False, action="store_true",
+    parser.add_argument('--spheric_poses', default=True, action="store_true",
                         help='whether images are taken in spheric poses (for llff)')
 
     parser.add_argument('--N_emb_xyz', type=int, default=10,
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     kwargs = {'root_dir': args.root_dir,
               'split': args.split,
               'img_wh': tuple(args.img_wh)}
-    if args.dataset_name == 'llff':
+    if args.dataset_name == 'llff' or args.dataset_name == 'llff_nsff':
         kwargs['spheric_poses'] = args.spheric_poses
     dataset = dataset_dict[args.dataset_name](**kwargs)
 

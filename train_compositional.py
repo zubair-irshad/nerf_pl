@@ -10,13 +10,14 @@ from datasets import dataset_dict
 # models
 from models.nerf import *
 from models.rendering_compositional import *
+# from models.rendering_compositional_symmetric import *
 from models.code_library import *
 from utils.train_helper import visualize_val_image
 # optimizer, scheduler, visualization
 from utils import *
 
 # losses
-from losses import get_loss
+from losses import get_loss, get_sym_loss
 
 # metrics
 from metrics import *
@@ -37,9 +38,11 @@ class NeRFSystem(LightningModule):
         self.save_hyperparameters(hparams)
         print("hparams", hparams)
         #only do this for loading checkpoint/inference
-        # hparams = DotMap(hparams)
+        if type(hparams) is dict:
+            hparams = DotMap(hparams)
         # self.loss = loss_dict['color'](coef=1)
         self.loss = get_loss(hparams)
+        # self.loss = get_sym_loss(hparams)
 
         self.embedding_xyz = Embedding(hparams.N_emb_xyz)
         self.embedding_dir = Embedding(hparams.N_emb_dir)

@@ -26,9 +26,8 @@ def make_poses_bounds_array(frame_data, near=0.2, far=10):
         [[0.,   1.,   0.],
         [1.,   0.,   0.],
         [0.,   0.,  -1.]])
-
     for frame in frame_data:
-        camera = frame.camera      
+        camera = frame.camera    
         focal = camera.intrinsics[0]
         cam_to_world = np.array(camera.transform).reshape(4,4)
         all_c2w.append(cam_to_world)
@@ -135,14 +134,13 @@ class ObjectronDataset(Dataset):
         self.white_back = False
 
     def read_meta(self):
-        instance_name = 'bottle_batch-1_37'
-        self.base_dir = '/home/ubuntu/nerf_pl/data/objectron/bottle/'+instance_name
+        instance_name = 'cereal_box_batch-1_31'
+        self.base_dir = '/home/ubuntu/nerf_pl/data/objectron/'+instance_name
         self.axis_align_mat = torch.FloatTensor(np.linalg.inv(read_objectron_info(self.base_dir, instance_name)))
         # self.axis_align_mat = torch.FloatTensor(read_objectron_info(self.base_dir, instance_name))
                 #json_files = [pos_json for pos_json in os.listdir(base_dir) if pos_json.endswith('.json')]
         sfm_arframe_filename = self.base_dir + '/'+ instance_name+'_sfm_arframe.pbdata'
         frame_data = load_frame_data(sfm_arframe_filename)
-
         # self.near = 0.02
         # self.far = 1.5
 
@@ -157,9 +155,9 @@ class ObjectronDataset(Dataset):
         self.meta = self.meta
 
         # if len(self.meta) >300:
-        self.all_c2w = self.all_c2w[:200]
-        self.all_focal = self.all_focal[:200]
-        self.meta = self.meta[:200]
+        self.all_c2w = self.all_c2w[:160]
+        self.all_focal = self.all_focal[:160]
+        self.meta = self.meta[:160]
 
         #Select every 4th view for training
         # self.all_c2w = self.all_c2w[::2]
@@ -192,6 +190,9 @@ class ObjectronDataset(Dataset):
 
                 img_name = os.path.basename(seg_name).split('_')[1]
                 img = Image.open(os.path.join(self.base_dir, 'images_12', img_name))
+                
+                # img = img.resize((120,160), Image.LANCZOS)
+                
                 img = img.transpose(Image.ROTATE_90)
                 img = self.transform(img) # (h, w, 3)
                 img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
@@ -199,6 +200,9 @@ class ObjectronDataset(Dataset):
                 #Get masks
                 # mask_name = 'mask_'+ os.path.split(img_name)[1]
                 seg_mask = cv2.imread(os.path.join(self.base_dir, 'masks_12', os.path.basename(seg_name)), cv2.IMREAD_GRAYSCALE)
+                
+                #seg_mask = cv2.resize(seg_mask, (120,160), interpolation=cv2.INTER_NEAREST)
+                
                 seg_mask = np.rot90(np.array(seg_mask), axes=(0,1))
 
                 valid_mask = seg_mask>0
@@ -271,6 +275,9 @@ class ObjectronDataset(Dataset):
 
             img_name = os.path.basename(seg_name).split('_')[1]
             img = Image.open(os.path.join(self.base_dir, 'images_12', img_name))
+            
+            # img = img.resize((120,160), Image.LANCZOS)
+            
             img = img.transpose(Image.ROTATE_90) 
             img = self.transform(img) # (h, w, 3)
             img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
@@ -280,6 +287,9 @@ class ObjectronDataset(Dataset):
             # seg_name = 'mask_'+ os.path.split(img_name)[1]
             
             seg_mask = cv2.imread(os.path.join(self.base_dir, 'masks_12', os.path.basename(seg_name)), cv2.IMREAD_GRAYSCALE)
+            
+            #seg_mask = cv2.resize(seg_mask, (120,160), interpolation=cv2.INTER_NEAREST)
+            
             seg_mask = np.rot90(np.array(seg_mask), axes=(0,1))
             valid_mask = seg_mask>0
             valid_mask = self.transform(valid_mask).view(

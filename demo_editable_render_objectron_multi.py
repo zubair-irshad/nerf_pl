@@ -9,59 +9,17 @@ sys.path.append(".")  # noqa
 import imageio
 import numpy as np
 from tqdm import tqdm
-from models.editable_renderer_objectron_canonical import EditableRenderer
+from models.editable_renderer_objectron_canonical_multi import EditableRenderer
 from scipy.spatial.transform import Rotation
 from datasets.depth_utils import *
 from PIL import Image
 from torchvision import transforms as T
 
-
-def create_spheric_poses(radius, n_poses=50):
-    """
-    Create circular poses around z axis.
-    Inputs:
-        radius: the (negative) height and the radius of the circle.
-
-    Outputs:
-        spheric_poses: (n_poses, 3, 4) the poses in the circular path
-    """
-    def spheric_pose(theta, phi, radius):
-        trans_t = lambda t : np.array([
-            [1,0,0,0],
-            [0,1,0,-0.9*t],
-            [0,0,1,t],
-            [0,0,0,1],
-        ])
-
-        rot_phi = lambda phi : np.array([
-            [1,0,0,0],
-            [0,np.cos(phi),-np.sin(phi),0],
-            [0,np.sin(phi), np.cos(phi),0],
-            [0,0,0,1],
-        ])
-
-        rot_theta = lambda th : np.array([
-            [np.cos(th),0,-np.sin(th),0],
-            [0,1,0,0],
-            [np.sin(th),0, np.cos(th),0],
-            [0,0,0,1],
-        ])
-
-        c2w = rot_theta(theta) @ rot_phi(phi) @ trans_t(radius)
-        c2w = np.array([[-1,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,1]]) @ c2w
-        return c2w
-
-    spheric_poses = []
-    for th in np.linspace(0, 2*np.pi, n_poses+1)[:-1]:
-        spheric_poses += [spheric_pose(-np.pi/2, th, radius)] # 36 degree view downwards
-    return np.stack(spheric_poses, 0)
-
-
 def move_camera_pose(pose, progress):
     # control the camera move (spiral pose)
     t = progress * np.pi * 4
-    # radii = 0
     radii = 0.005
+    # radii = 0
     center = np.array([np.cos(t), -np.sin(t), -np.sin(0.5 * t)]) * radii
     pose[:3, 3] += pose[:3, :3] @ center
     return pose
@@ -70,52 +28,34 @@ def move_camera_pose(pose, progress):
 def get_pure_rotation(progress_11: float, max_angle: float = 0):
     trans_pose = np.eye(4)
     trans_pose[:3, :3] = Rotation.from_euler(
-        "y", progress_11 * max_angle, degrees=True
+        "x", progress_11 * max_angle, degrees=True
     ).as_matrix()
     return trans_pose
 
 
-def get_transformation_with_duplication_offset(progress, duplication_id: int):
-    trans_pose = get_pure_rotation(np.sin(progress * np.pi * 2), max_angle=30)
-    offset = 0.05
-    if duplication_id > 0:
-        trans_pose[0, 3] -= np.sin(progress * np.pi * 2) * offset
-        trans_pose[1, 3] -= 0.2
-    else:
-        trans_pose[0, 3] += np.sin(progress * np.pi * 2) * offset
-        trans_pose[1, 3] += 0.55
-    return trans_pose
+# def get_transformation_with_duplication_offset(progress, duplication_id: int):
+#     trans_pose = get_pure_rotation(np.sin(progress * np.pi * 2), max_angle=10)
+#     offset = 0.005
+#     if duplication_id > 0:
+#         trans_pose[0, 3] -= np.sin(progress * np.pi * 2) * offset
+#         trans_pose[1, 3] -= 0.002
+#     else:
+#         trans_pose[0, 3] += np.sin(progress * np.pi * 2) * offset
+#         trans_pose[1, 3] += 0.2
+#     return trans_pose
 
-def get_scale_offset(progress, duplication_cnt):
-    trans_pose = get_pure_rotation(np.sin(progress * np.pi * 2), max_angle=20)
-    # offset = 0.05
-    # trans_pose = np.eye(4)
-
-    if duplication_cnt==0:
-        trans_pose[:3,:3] *= 0.17
-        trans_pose[1, 3] -= 0.075
-        trans_pose[0, 3] += 0.03
-        trans_pose[2, 3] -= 0.07
-    elif duplication_cnt ==1:
-        trans_pose[:3,:3] *= 0.16
-        trans_pose[1, 3] -= 0.08
-        trans_pose[0, 3] += 0.06
-        trans_pose[2, 3] -= 0.09
-    elif duplication_cnt ==2:
-        trans_pose[:3,:3] *= 0.16
-        trans_pose[1, 3] -= 0.075
-        trans_pose[0, 3] += 0.0
-        trans_pose[2, 3] -= 0.05
-    # elif duplication_cnt ==2:
-    #     trans_pose[:3,:3] *= 0.15
-    #     trans_pose[1, 3] -= 0.06
-    #     trans_pose[0, 3] += 0.07
-
-    # else:
-    #     trans_pose[0, 3] += np.sin(progress * np.pi * 2) * offset
-    #     trans_pose[1, 3] += 0.55
-
-
+def get_single_duplication_offset(progress, duplication_id: int):
+    #trans_pose = get_pure_rotation(np.sin(progress * np.pi * 2), max_angle=10)
+    offset = 0.005
+    trans_pose = np.eye(4)
+    if duplication_id == 1:
+        trans_pose[0, 3] -= 0
+    elif duplication_id == 2:
+        trans_pose[0, 3] += 0
+    elif duplication_id == 3:
+        trans_pose[0, 3] -= 0
+    elif duplication_id == 4:
+        trans_pose[0, 3] -= 0.15
     return trans_pose
 
 
@@ -126,32 +66,26 @@ def main(config):
     renderer = EditableRenderer(config=config)
     renderer.load_frame_meta()
     # obj_id_list = config.obj_id_list  # e.g. [4, 6]
-    obj_id_list = [1,1,1]
+    obj_id_list = [1,2,3,4]
     for obj_id in obj_id_list:
         renderer.initialize_object_bbox(obj_id)
 
-    renderer.remove_scene_object_by_ids(obj_id_list)
+    obj_id_remove = [4]
+    renderer.remove_scene_object_by_ids(obj_id_remove)
     W, H = config.img_wh
     # total_frames = config.total_frames
     # pose_frame_idx = config.test_frame
     total_frames = 50
     pose_frame_idx = 0
-    # edit_type = "scale"
-    edit_type = "pure_rotation"
+    edit_type = "duplication"
+    # background_name = '/home/ubuntu/nerf_pl/data/objectron/backgrounds/0004_color.png'
+    # bckg_img = Image.open(background_name)
+    # transform = T.ToTensor()
+    # bckg_img = bckg_img.transpose(Image.Transpose.ROTATE_90)
+    # bckg_img = transform(bckg_img) # (h, w, 3)
+    # bckg_img = bckg_img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
 
-    background_name = '/home/ubuntu/nerf_pl/grocery_bckg_6.jpg'
-    bckg_img = Image.open(background_name)
-    transform = T.ToTensor()
-    # newsize = (1440, 1920)
-    newsize = (1440, 1920)
-    bckg_img = bckg_img.resize(newsize)
-    bckg_img = bckg_img.transpose(Image.Transpose.ROTATE_90)
-    bckg_img = transform(bckg_img) # (h, w, 3)
-    print("bckg_img", bckg_img.shape)
-    bckg_img = bckg_img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
-    print("bckg_img", bckg_img.shape)
-
-    # poses_test = create_spheric_poses(0.28)
+    # self.poses_test = torch.stack([pose_spherical(angle, -30.0, 4.0) for angle in np.linspace(-180,180,40+1)[:-1]], 0)
     
     for idx in tqdm(range(total_frames)):
         # an example to set object pose
@@ -166,13 +100,12 @@ def main(config):
             print("progress", progress)
 
             if edit_type == "duplication":
-                trans_pose = get_transformation_with_duplication_offset(
-                    progress, obj_duplication_cnt
+                trans_pose = get_single_duplication_offset(
+                    progress, obj_id
                 )
             elif edit_type == "pure_rotation":
                 trans_pose = get_pure_rotation(progress_11=(progress * 2 - 1))
-            else:
-                trans_pose = get_scale_offset(progress, obj_duplication_cnt)
+
             renderer.set_object_pose_transform(obj_id, trans_pose, obj_duplication_cnt)
             processed_obj_id.append(obj_id)
 
@@ -187,19 +120,6 @@ def main(config):
         # )
 
         # render edited scene
-        results = renderer.render_edit(
-            h=H,
-            w=W,
-            # camera_pose_Twc = poses_test[idx],
-            camera_pose_Twc=move_camera_pose(
-                renderer.get_camera_pose_focal_by_frame_idx(pose_frame_idx)[0],
-                idx / total_frames,
-            ),
-            focal=renderer.get_camera_pose_focal_by_frame_idx(pose_frame_idx)[1],
-            # bckg_img = bckg_img
-            bckg_img = None
-        )
-
         # results = renderer.render_edit(
         #     h=H,
         #     w=W,
@@ -207,8 +127,19 @@ def main(config):
         #         renderer.get_camera_pose_focal_by_frame_idx(pose_frame_idx)[0],
         #         idx / total_frames,
         #     ),
-        #     focal=renderer.get_camera_pose_focal_by_frame_idx(pose_frame_idx)[1]
+        #     focal=renderer.get_camera_pose_focal_by_frame_idx(pose_frame_idx)[1],
+        #     bckg_img = None
         # )
+
+        results = renderer.render_edit(
+            h=H,
+            w=W,
+            camera_pose_Twc=move_camera_pose(
+                renderer.get_camera_pose_focal_by_frame_idx(3, pose_frame_idx)[0],
+                idx / total_frames,
+            ),
+            focal=renderer.get_camera_pose_focal_by_frame_idx(3, pose_frame_idx)[1]
+        )
         image_out_path = f"{render_path}/render_{idx:04d}.png"
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
 

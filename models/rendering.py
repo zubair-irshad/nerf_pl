@@ -58,6 +58,7 @@ def render_rays(models,
                 chunk=1024*32,
                 white_back=False,
                 test_time=False,
+                embed=True,
                 **kwargs
                 ):
     """
@@ -79,7 +80,7 @@ def render_rays(models,
         result: dictionary containing final rgb and depth maps for coarse and fine models
     """
 
-    def inference(results, model, typ, xyz, z_vals, test_time=False, **kwargs):
+    def inference(results, model, typ, xyz, z_vals, test_time=False, embed=True, **kwargs):
         """
         Helper function that performs model inference.
         Inputs:
@@ -108,7 +109,10 @@ def render_rays(models,
         out_chunks = []
         if typ=='coarse' and test_time and 'fine' in models:
             for i in range(0, B, chunk):
-                xyz_embedded = embedding_xyz(xyz_[i:i+chunk])
+                if embed:
+                    xyz_embedded = embedding_xyz(xyz_[i:i+chunk])
+                else:
+                    xyz_embedded = xyz_[i:i+chunk]
                 out_chunks += [model(xyz_embedded, sigma_only=True)]
 
             out = torch.cat(out_chunks, 0)
@@ -117,10 +121,20 @@ def render_rays(models,
             dir_embedded_ = repeat(dir_embedded, 'n1 c -> (n1 n2) c', n2=N_samples_)
                             # (N_rays*N_samples_, embed_dir_channels)
             for i in range(0, B, chunk):
-                xyz_embedded = embedding_xyz(xyz_[i:i+chunk])
+                if embed:
+                    xyz_embedded = embedding_xyz(xyz_[i:i+chunk])
+                else:
+                    xyz_embedded = xyz_[i:i+chunk]
+
                 xyzdir_embedded = torch.cat([xyz_embedded,
                                              dir_embedded_[i:i+chunk]], 1)
-                out_chunks += [model(xyzdir_embedded, sigma_only=False)]
+
+                # print("xyzdir_embedded", xyzdir_embedded.shape)
+                if embed:
+                    out_chunks += [model(xyzdir_embedded, sigma_only=False)]
+                else:
+                    out_chunks += [model(xyzdir_embedded)]
+
 
             out = torch.cat(out_chunks, 0)
             # out = out.view(N_rays, N_samples_, 4)
@@ -148,6 +162,7 @@ def render_rays(models,
         results[f'weights_{typ}'] = weights
         results[f'opacity_{typ}'] = weights_sum
         results[f'z_vals_{typ}'] = z_vals
+        results[f'out_{typ}'] = out
         if test_time and typ == 'coarse' and 'fine' in models:
             return
 
@@ -162,14 +177,18 @@ def render_rays(models,
 
         return
 
-    embedding_xyz, embedding_dir = embeddings['xyz'], embeddings['dir']
+    if embed:
+        embedding_xyz, embedding_dir = embeddings['xyz'], embeddings['dir']
 
     # Decompose the inputs
     N_rays = rays.shape[0]
     rays_o, rays_d = rays[:, 0:3], rays[:, 3:6] # both (N_rays, 3)
     near, far = rays[:, 6:7], rays[:, 7:8] # both (N_rays, 1)
     # Embed direction
-    dir_embedded = embedding_dir(kwargs.get('view_dir', rays_d)) # (N_rays, embed_dir_channels)
+    if embed:
+        dir_embedded = embedding_dir(kwargs.get('view_dir', rays_d)) # (N_rays, embed_dir_channels)
+    else:
+        dir_embedded = kwargs.get('view_dir', rays_d)
 
     rays_o = rearrange(rays_o, 'n1 c -> n1 1 c')
     rays_d = rearrange(rays_d, 'n1 c -> n1 1 c')

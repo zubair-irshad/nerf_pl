@@ -70,7 +70,7 @@ def main(hparams):
     obj_id_list = [1,2,3,4,5,6]  # e.g. [4, 6]
     W, H = hparams.img_wh
     total_frames = 50
-    pose_frame_idx = 350
+    pose_frame_idx = 0
     edit_type = 'pure_rotation'
 
     for obj_id in obj_id_list:

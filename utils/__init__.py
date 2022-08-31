@@ -21,6 +21,14 @@ def get_parameters(models):
         parameters += list(models.parameters())
     return parameters
 
+def get_optimizer_tcnn(hparams, model):
+    optimizer = torch.optim.Adam(model['coarse'].get_params(hparams.lr), betas=(0.9, 0.99), eps=1e-15)
+    return optimizer
+
+def get_scheduler_tcnn(hparams, optimizer):
+    scheduler = LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / hparams.iters, 1))
+    return scheduler
+
 def get_optimizer(hparams, models):
     eps = 1e-8
     parameters = get_parameters(models)

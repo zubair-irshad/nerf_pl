@@ -1,7 +1,7 @@
 from datasets.objectron_multi import ObjectronMultiDataset
 from datasets.srn_multi import SRN_Multi
 from .blender import BlenderDataset
-from .llff import LLFFDataset, LLFFDatasetNOCS
+from .llff import LLFFDataset, LLFFDatasetNOCS, LLFFNOCSBackground, LLFFDatasetNSFF
 from .google_scanned import GoogleScannedDataset
 from .objectron import ObjectronDataset
 from .objectron_multi import ObjectronMultiDataset
@@ -11,6 +11,8 @@ from .srn_multi import SRN_Multi
 dataset_dict = {'blender': BlenderDataset,
                 'llff': LLFFDataset,
                 'llff_nocs': LLFFDatasetNOCS,
+                'nocs_bckg': LLFFNOCSBackground,
+                'llff_nsff': LLFFDatasetNSFF,
                 'google_scanned': GoogleScannedDataset,
                 'objectron': ObjectronDataset,
                 'objectron_multi': ObjectronMultiDataset,

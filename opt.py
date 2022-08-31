@@ -7,7 +7,7 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi', 'objectron_multi'],
+                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi', 'objectron_multi', 'nocs_bckg', 'llff_nsff'],
                         help='which dataset to train/val')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[640, 480],
                         help='resolution (img_w, img_h) of the image')
@@ -88,9 +88,9 @@ def get_opts():
 
     
     #### Loss params
-    parser.add_argument('--color_loss_weight', type=float, default=1.0)
+    parser.add_argument('--color_loss_weight', type=float, default=50.0)
     parser.add_argument('--depth_loss_weight', type=float, default=0.1)
-    parser.add_argument('--opacity_loss_weight', type=float, default=50.0)
+    parser.add_argument('--opacity_loss_weight', type=float, default=10.0)
     parser.add_argument('--instance_color_loss_weight', type=float, default=1.0)
     parser.add_argument('--instance_depth_loss_weight', type=float, default=1.0)
 
@@ -98,8 +98,12 @@ def get_opts():
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='optimizer type',
                         choices=['sgd', 'adam', 'radam', 'ranger'])
+    # parser.add_argument('--lr', type=float, default=1.0e-3,
+    #                     help='learning rate')
     parser.add_argument('--lr', type=float, default=1.0e-3,
                         help='learning rate')
+    parser.add_argument('--iters', type=int, default=30000,
+                        help='iters')
     # parser.add_argument('--lr', type=float, default=1.0e-4,
     #                     help='learning rate')
     parser.add_argument('--latent_lr', type=float, default=1.0e-3,
