@@ -6,8 +6,8 @@ from torch import nn
 import torch.nn.functional as F
 # from models.resnet_encoder import MultiHeadImgEncoder
 
-import tinycudann as tcnn
-from models.activation import trunc_exp
+# import tinycudann as tcnn
+# from models.activation import trunc_exp
 # from activation import trunc_exp
 
 class Embedding(nn.Module):

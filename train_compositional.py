@@ -100,11 +100,15 @@ class NeRFSystem(LightningModule):
 
     def setup(self, stage):
         dataset = dataset_dict[self.hparams.dataset_name]
-        kwargs = {'root_dir': self.hparams.root_dir,
-                  'img_wh': tuple(self.hparams.img_wh)}
         if self.hparams.dataset_name == 'llff' or self.hparams.dataset_name == 'llff_nocs':
+            kwargs = {'root_dir': self.hparams.root_dir,
+                  'img_wh': tuple(self.hparams.img_wh)}
             kwargs['spheric_poses'] = self.hparams.spheric_poses
             kwargs['val_num'] = self.hparams.num_gpus
+        elif self.hparams.dataset_name == 'co3d':
+            kwargs = {'data_dir': self.hparams.root_dir}
+            kwargs['category'] = 'car'
+            kwargs['instance'] = '106_12650_23736'
         self.train_dataset = dataset(split='train', **kwargs)
         self.val_dataset = dataset(split='val', **kwargs)
 
@@ -173,9 +177,10 @@ class NeRFSystem(LightningModule):
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
     
         if batch_nb == 0:
+            H, W = batch['img_wh']
 
             grid_img = visualize_val_image(
-                self.hparams.img_wh, batch, results, typ=typ
+                (W,H), batch, results, typ=typ
             )
             self.logger.experiment.log({
                 "val/GT_pred images": wandb.Image(grid_img)

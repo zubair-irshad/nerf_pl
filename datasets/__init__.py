@@ -7,6 +7,7 @@ from .objectron import ObjectronDataset
 from .objectron_multi import ObjectronMultiDataset
 from .srn import SRNDataset
 from .srn_multi import SRN_Multi
+from .co3d import CO3D_Instance
 
 dataset_dict = {'blender': BlenderDataset,
                 'llff': LLFFDataset,
@@ -17,7 +18,8 @@ dataset_dict = {'blender': BlenderDataset,
                 'objectron': ObjectronDataset,
                 'objectron_multi': ObjectronMultiDataset,
                 'srn': SRNDataset,
-                'srn_multi': SRN_Multi}
+                'srn_multi': SRN_Multi,
+                'co3d': CO3D_Instance}
 
 # dataset_dict = {'blender': BlenderDataset,
 #                 'llff': LLFFDataset}

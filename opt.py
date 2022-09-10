@@ -7,7 +7,7 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi', 'objectron_multi', 'nocs_bckg', 'llff_nsff'],
+                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi', 'objectron_multi', 'nocs_bckg', 'llff_nsff', 'co3d'],
                         help='which dataset to train/val')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[640, 480],
                         help='resolution (img_w, img_h) of the image')
@@ -68,7 +68,7 @@ def get_opts():
     parser.add_argument('--inst_W', type=int, default=128)
     parser.add_argument('--inst_skips', type=list, default=[2])
 
-    parser.add_argument('--batch_size', type=int, default=2048,
+    parser.add_argument('--batch_size', type=int, default=4096,
                         help='batch size')
     parser.add_argument('--chunk', type=int, default=32*1024,
                         help='chunk size to split the input to avoid OOM')
@@ -88,7 +88,7 @@ def get_opts():
 
     
     #### Loss params
-    parser.add_argument('--color_loss_weight', type=float, default=50.0)
+    parser.add_argument('--color_loss_weight', type=float, default=1.0)
     parser.add_argument('--depth_loss_weight', type=float, default=0.1)
     parser.add_argument('--opacity_loss_weight', type=float, default=10.0)
     parser.add_argument('--instance_color_loss_weight', type=float, default=1.0)

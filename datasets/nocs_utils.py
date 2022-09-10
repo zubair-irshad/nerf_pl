@@ -309,3 +309,17 @@ def rebalance_mask(mask, fg_weight=None, bg_weight=None):
     # cv2.imshow('img_balanced_weight', balanced_weight)
     # cv2.waitKey(5)
     return balanced_weight
+
+
+def rebalance_mask_tensor(mask, fg_weight=None, bg_weight=None):
+    if fg_weight is None and bg_weight is None:
+        foreground_cnt = max(mask.sum(), 1)
+        background_cnt = max((~mask).sum(), 1)
+        balanced_weight = np.ones_like(mask).astype(np.float32)
+        balanced_weight[mask] = float(background_cnt) / foreground_cnt
+        balanced_weight[~mask] = float(foreground_cnt) / background_cnt
+    else:
+        balanced_weight = torch.ones_like(mask, dtype=torch.float32)
+        balanced_weight[mask] = fg_weight
+        balanced_weight[~mask] = bg_weight
+    return balanced_weight

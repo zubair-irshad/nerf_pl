@@ -2,6 +2,20 @@ import torch
 from kornia import create_meshgrid
 import numpy as np
 import matplotlib.pyplot as plt
+
+def homogenise_np(p):
+    _1 = np.ones((p.shape[0], 1), dtype=p.dtype)
+    return np.concatenate([p, _1], axis=-1)
+
+
+def inside_axis_aligned_box(pts, box_min, box_max):
+    return torch.all(torch.cat([pts >= box_min, pts <= box_max], dim=1), dim=1)
+
+
+def homogenise_torch(p):
+    _1 = torch.ones_like(p[:, [0]])
+    return torch.cat([p, _1], dim=-1)
+
 def get_ray_directions(H, W, focal):
     """
     Get ray directions for all pixels in camera coordinate.

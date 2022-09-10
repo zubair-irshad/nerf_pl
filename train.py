@@ -98,11 +98,15 @@ class NeRFSystem(LightningModule):
 
     def setup(self, stage):
         dataset = dataset_dict[self.hparams.dataset_name]
-        kwargs = {'root_dir': self.hparams.root_dir,
-                  'img_wh': tuple(self.hparams.img_wh)}
         if self.hparams.dataset_name == 'llff' or self.hparams.dataset_name == 'llff_nocs' or self.hparams.dataset_name =='nocs_bckg' or self.hparams.dataset_name=='llff_nsff':
+            kwargs = {'root_dir': self.hparams.root_dir,
+                  'img_wh': tuple(self.hparams.img_wh)}
             kwargs['spheric_poses'] = self.hparams.spheric_poses
             kwargs['val_num'] = self.hparams.num_gpus
+        elif self.hparams.dataset_name == 'co3d':
+            kwargs = {'data_dir': self.hparams.root_dir}
+            kwargs['category'] = 'laptop'
+            kwargs['instance'] = '112_13277_23636'
         self.train_dataset = dataset(split='train', **kwargs)
         self.val_dataset = dataset(split='val', **kwargs)
 
@@ -151,6 +155,8 @@ class NeRFSystem(LightningModule):
     def validation_step(self, batch, batch_nb):
         rays, rgbs = batch['rays'], batch['rgbs']
         for k,v in batch.items():
+            if k =='img_wh':
+                continue
             print(k,v.shape)
         rays = rays.squeeze() # (H*W, 3)
         rgbs = rgbs.squeeze() # (H*W, 3)
@@ -165,7 +171,7 @@ class NeRFSystem(LightningModule):
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
     
         if batch_nb == 0:
-            W, H = self.hparams.img_wh
+            H, W = batch['img_wh']
             img = results[f'rgb_{typ}'].view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
             img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
             depth = visualize_depth(results[f'depth_{typ}'].view(H, W)) # (3, H, W)
