@@ -24,8 +24,10 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff', 'google_scanned', 'srn', 'objectron', 'llff_nsff'],
+                        choices=['blender', 'llff', 'google_scanned', 'srn', 'objectron', 'llff_nsff', 'pd'],
                         help='which dataset to validate')
+    parser.add_argument('--white_back', default=False, action="store_true",
+                        help='use disparity depth sampling')
     parser.add_argument('--scene_name', type=str, default='test',
                         help='scene name, used as output folder name')
     parser.add_argument('--split', type=str, default='test',
@@ -98,6 +100,9 @@ if __name__ == "__main__":
               'img_wh': tuple(args.img_wh)}
     if args.dataset_name == 'llff' or args.dataset_name == 'llff_nsff':
         kwargs['spheric_poses'] = args.spheric_poses
+    if args.dataset_name =='pd':
+        kwargs['white_back'] = args.white_back
+
     dataset = dataset_dict[args.dataset_name](**kwargs)
 
     embedding_xyz = Embedding(args.N_emb_xyz)

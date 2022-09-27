@@ -151,9 +151,12 @@ class CodeLibraryBckgObjShapeApp(nn.Module):
             ret_dict["embedding_instance_appearance"] = self.embedding_instance_appearance(
                 inputs["instance_ids"].squeeze()
             )
+            # ret_dict["embedding_backgrounds"] = self.embedding_backgrounds(
+            #     inputs["instance_ids"].squeeze()
+            # )
             ret_dict["embedding_backgrounds"] = self.embedding_backgrounds(
-                inputs["instance_ids"].squeeze()
-            )
+                inputs["instance_ids"].squeeze()[0]
+            ).unsqueeze(0)
 
         return ret_dict
 
@@ -165,14 +168,38 @@ if __name__ == '__main__':
     # # conf_merged = OmegaConf.merge(conf_default, conf_dataset, conf_cli)
 
     hparams = get_opts()
-    code_library = CodeLibrary(hparams)
+    code_library = CodeLibraryBckgObjShapeApp(hparams)
     inputs = {}
     H = 480
     W = 640
     instance_id = 1
     instance_mask = torch.ones((H,W))
     instance_mask = instance_mask.view(-1)
+    
     inputs["instance_ids"] = torch.ones_like(instance_mask).long() * instance_id
+    print("inputs[instance_ids]", inputs["instance_ids"].shape)
     ret_dict = code_library.forward(inputs)
 
-    # print("ret_dict", ret_dict["embedding_instance"].shape)
+    print("ret_dict", ret_dict["embedding_instance_shape"].shape)
+    print("ret_dict", ret_dict["embedding_instance_appearance"].shape)
+    print("ret_dict", ret_dict["embedding_backgrounds"].shape)
+
+    from models.nerf import StyleGenerator2D
+
+    decoder = StyleGenerator2D()
+
+    z = ret_dict["embedding_backgrounds"]
+    print("z", z.shape)
+    w = decoder(z=z)
+    print("w", w.shape)
+
+    from models.nerf import ObjectBckgNeRFGSN
+    nerf_coarse = ObjectBckgNeRFGSN(hparams)
+
+    xyz = torch.randn(1, 2048, 96, 3)
+
+    bckg_code, _ = nerf_coarse.sample_local_latents(z, xyz)
+
+    print("bckg_code", bckg_code.shape)
+
+

@@ -314,8 +314,8 @@ class EditableRenderer:
         focal,
         pose_delta = None,
         show_progress: bool = True,
-        render_bg_only: bool = False,
-        render_obj_only: bool = True,
+        render_bg_only: bool = True,
+        render_obj_only: bool = False,
         white_back: bool = True,
     ):
         # focal = (w / 2) / np.tan((fovx_deg / 2) / (180 / np.pi))

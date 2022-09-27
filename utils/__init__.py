@@ -22,7 +22,7 @@ def get_parameters(models):
     return parameters
 
 def get_optimizer_tcnn(hparams, model):
-    optimizer = torch.optim.Adam(model['coarse'].get_params(hparams.lr), betas=(0.9, 0.99), eps=1e-15)
+    optimizer = torch.optim.Adam(model['coarse'].get_params(hparams.lr), betas=(0.9, 0.99), eps=1e-6)
     return optimizer
 
 def get_scheduler_tcnn(hparams, optimizer):

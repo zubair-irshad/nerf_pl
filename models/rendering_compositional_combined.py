@@ -95,7 +95,11 @@ def inference_model(
     """
     embedding_xyz, embedding_dir = embeddings["xyz"], embeddings["dir"]
     N_rays, N_samples_, _ = xyz.shape
-    xyz_ = rearrange(xyz, 'n1 n2 c -> (n1 n2) c') # (N_rays*N_samples_, 3)
+    
+    print("embedding_backgrounds, xyz", embedding_backgrounds.shape, xyz.unsqueeze(0).shape)
+    bckg_codes, _ = model.sample_local_latents(embedding_backgrounds, xyz.unsqueeze(0))
+    #print("bckg_codes", bckg_codes.shape, embedding_backgrounds.shape)
+    xyz_ = rearrange(xyz.squeeze(0), 'n1 n2 c -> (n1 n2) c') # (N_rays*N_samples_, 3)
 
     # Embed direction
     dir_embedded = embedding_dir(rays_d)  # (N_rays, embed_dir_channels)
@@ -105,7 +109,9 @@ def inference_model(
     # obj_codes = repeat(embedding_instance, "n1 c -> (n1 n2) c", n2=N_samples_)
     obj_codes_shape = repeat(embedding_instance_shape, "n1 c -> (n1 n2) c", n2=N_samples_)
     obj_codes_appearance = repeat(embedding_instance_appearance, "n1 c -> (n1 n2) c", n2=N_samples_)
-    bckg_codes = repeat(embedding_backgrounds, "n1 c -> (n1 n2) c", n2=N_samples_)
+    
+    #bckg_codes = repeat(embedding_backgrounds, "n1 c -> (n1 n2) c", n2=N_samples_)
+    
     # Perform model inference to get rgb and raw sigma
     B = xyz_.shape[0]
     out_chunks = []
@@ -117,6 +123,10 @@ def inference_model(
     for i in range(0, B, chunk):
         xyz_embedded = embedding_xyz(xyz_[i : i + chunk])
 
+        # print("xyz_embedded", xyz_embedded.shape)
+        # print("dir_embedded_[i : i + chunk]", dir_embedded_[i : i + chunk].shape)
+
+        # print("bckg_codes", bckg_codes.shape)
         output = model(
             {
                 "emb_xyz": xyz_embedded,

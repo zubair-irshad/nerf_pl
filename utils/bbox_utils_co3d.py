@@ -60,7 +60,7 @@ class BBoxRayHelper:
     def __init__(self, hparams, instance_id):
         super().__init__()
         self.hparams = hparams
-        self.read_objectron_info(instance_id)
+        self.load_auto_bbox_scale(instance_id)
 
 
     # def read_objectron_info(self, instance_id):
@@ -83,25 +83,46 @@ class BBoxRayHelper:
     #     self.axis_align_mat = box_transformation
     #     self.bbox_bounds = np.array([-scale / 2, scale / 2])
 
-    def read_objectron_info(self, instance_id):
-        # base_dir = '/home/ubuntu/nerf_pl/data/objectron'
-        base_dir = '/home/ubuntu/nerf_pl/data/objectron/camera'
-        self.ids = np.sort([f.name for f in os.scandir(base_dir)]) 
-        # instance_name = self.ids[instance_id-1]
-        # instance_id = 3
-        instance_name = 'camera_batch-1_0'
-        print("instance_name", instance_name)
-        print("self.ids", self.ids)
-        base_dir = os.path.join(base_dir, instance_name)
-        annotation_data, instances = get_frame_annotation(os.path.join(base_dir, instance_name+'.pbdata'))
-        instance_rotation, instance_translation, instance_scale, instance_vertices_3d = instances[0]
-        instance_rotation = np.reshape(instance_rotation, (3, 3))
-        box_transformation = np.eye(4)
-        box_transformation[:3, :3] = np.reshape(instance_rotation, (3, 3))
-        box_transformation[:3, -1] = instance_translation
-        scale = instance_scale.T
-        self.axis_align_mat = box_transformation
-        self.bbox_bounds = np.array([-scale / 2, scale / 2])
+    def load_auto_bbox_scale(self, instance):
+        data_dir = '/home/ubuntu/nerf_pl/data/co3d'
+        category = 'car'
+        instance = '106_12662_23043'
+        path = os.path.join(data_dir, category, instance, "alignment.npy")
+        # path = data_extra_dir.joinpath(cfg.category, cfg.instance, "alignment.npy")
+        data = np.load(path, allow_pickle=True).item()
+        T = data["T"]
+        box = data["box_size"]
+
+        s = np.zeros((4,4), np.float32)
+        np.fill_diagonal(s, 1.0)
+        scale_factor = np.max(box)
+        T[...,3] /=scale_factor
+        
+        self.axis_align_mat = T
+        
+        
+        box = box/scale_factor
+        self.bbox_bounds = np.array([-box / 2, box / 2])
+
+    # def read_objectron_info(self, instance_id):
+    #     # base_dir = '/home/ubuntu/nerf_pl/data/objectron'
+    #     base_dir = '/home/ubuntu/nerf_pl/data/objectron'
+    #     self.ids = np.sort([f.name for f in os.scandir(base_dir)]) 
+    #     # instance_name = self.ids[instance_id-1]
+    #     # instance_id = 3
+    #     instance_name = 'cereal_box_batch-1_31'
+    #     print("instance_name", instance_name)
+    #     print("self.ids", self.ids)
+    #     base_dir = os.path.join(base_dir, instance_name)
+    #     annotation_data, instances = get_frame_annotation(os.path.join(base_dir, instance_name+'.pbdata'))
+    #     instance_rotation, instance_translation, instance_scale, instance_vertices_3d = instances[0]
+    #     instance_rotation = np.reshape(instance_rotation, (3, 3))
+    #     box_transformation = np.eye(4)
+    #     box_transformation[:3, :3] = np.reshape(instance_rotation, (3, 3))
+    #     box_transformation[:3, -1] = instance_translation
+    #     scale = instance_scale.T
+    #     self.axis_align_mat = box_transformation
+    #     self.bbox_bounds = np.array([-scale / 2, scale / 2])
 
     def get_axis_align_mat(self, rescaled=False):
         if rescaled:
@@ -153,7 +174,7 @@ class BBoxRayHelper:
             else:
                 rays_o_bbox, rays_d_bbox = rays_o, rays_d
 
-        bbox_enlarge = 0.06
+        bbox_enlarge = 0
         bbox_bounds = copy.deepcopy(self.bbox_bounds)
         if bbox_enlarge > 0:
             bbox_z_min_orig = bbox_bounds[0][2]
@@ -188,7 +209,7 @@ class BBoxRayHelper:
             xyz = self.transform_xyz_to_bbox_coordinates(xyz)
             xyz = torch.from_numpy(xyz).float().cuda()
         bbox_bounds = copy.deepcopy(self.bbox_bounds)
-        bbox_enlarge = 0.06
+        bbox_enlarge = 0
         if bbox_enlarge > 0:
             bbox_z_min_orig = bbox_bounds[0][2]
             bbox_bounds[0] -= bbox_enlarge

@@ -9,7 +9,9 @@ from torch.utils.data import DataLoader
 from datasets import dataset_dict
 # models
 from models.nerf import *
-from models.rendering_compositional import *
+# from models.rendering_compositional import *
+from models.rendering_compositional_combined import *
+
 # from models.rendering_compositional_symmetric import *
 from models.code_library import *
 from utils.train_helper import visualize_val_image
@@ -49,16 +51,20 @@ class NeRFSystem(LightningModule):
         self.embeddings = {'xyz': self.embedding_xyz,
                            'dir': self.embedding_dir}
 
-        self.nerf_coarse = ObjectNeRF(hparams)
+        # self.nerf_coarse = ObjectNeRF(hparams)
+        # self.nerf_coarse = ObjectBckgNeRFConditional(hparams)
+        self.nerf_coarse = ObjectBckgNeRFGSN(hparams)
         self.models = {'coarse': self.nerf_coarse}
         # load_ckpt(self.nerf_coarse, hparams.weight_path, 'nerf_coarse')
 
         if hparams.N_importance > 0:
-            self.nerf_fine = ObjectNeRF(hparams)
+            # self.nerf_fine = ObjectNeRF(hparams)
+            self.nerf_fine = ObjectBckgNeRFGSN(hparams)
             self.models['fine'] = self.nerf_fine
             # load_ckpt(self.nerf_fine, hparams.weight_path, 'nerf_fine')
 
-        self.code_library = CodeLibrary(hparams)
+        # self.code_library = CodeLibrary(hparams)
+        self.code_library = CodeLibraryBckgObjShapeApp(hparams)
 
         self.models_to_train = [
             self.models,
@@ -73,7 +79,9 @@ class NeRFSystem(LightningModule):
         for i in range(0, B, self.hparams.chunk):
             extra_chunk = dict()
             for k, v in extra.items():
-                if isinstance(v, torch.Tensor):
+                if k == 'embedding_backgrounds':
+                    extra_chunk[k] = v
+                elif isinstance(v, torch.Tensor):
                     extra_chunk[k] = v[i : i + self.hparams.chunk]
                 else:
                     extra_chunk[k] = v
@@ -105,10 +113,13 @@ class NeRFSystem(LightningModule):
                   'img_wh': tuple(self.hparams.img_wh)}
             kwargs['spheric_poses'] = self.hparams.spheric_poses
             kwargs['val_num'] = self.hparams.num_gpus
+        elif self.hparams.dataset_name == 'objectron' or self.hparams.dataset_name=='pd' or self.hparams.dataset_name=='pdmultiobject':
+            kwargs = {'root_dir': self.hparams.root_dir,
+                  'img_wh': tuple(self.hparams.img_wh)}
         elif self.hparams.dataset_name == 'co3d':
             kwargs = {'data_dir': self.hparams.root_dir}
             kwargs['category'] = 'car'
-            kwargs['instance'] = '106_12650_23736'
+            kwargs['instance'] = '106_12662_23043'
         self.train_dataset = dataset(split='train', **kwargs)
         self.val_dataset = dataset(split='val', **kwargs)
 
@@ -132,6 +143,8 @@ class NeRFSystem(LightningModule):
                           pin_memory=True)
     
     def training_step(self, batch, batch_nb):
+        for k,v in batch.items():
+            print(k,v.shape)
         rays, rgbs = batch["rays"], batch["rgbs"]
         rays = rays.squeeze()  # (H*W, 3)
         rgbs = rgbs.squeeze()  # (H*W, 3)
@@ -160,6 +173,8 @@ class NeRFSystem(LightningModule):
 
     def validation_step(self, batch, batch_nb):
         rays, rgbs = batch['rays'], batch['rgbs']
+        # for k,v in batch.items():
+        #     print(k,v.shape)
         rays = rays.squeeze() # (H*W, 3)
         rgbs = rgbs.squeeze() # (H*W, 3)
 
@@ -168,6 +183,10 @@ class NeRFSystem(LightningModule):
         extra_info["rays_in_bbox"] = False
         extra_info["frustum_bound_th"] = -1
         extra_info.update(self.code_library(batch))
+
+        for k,v in extra_info.items():
+            if torch. is_tensor(v):
+                print(k,v.shape)
         results = self(rays, extra_info)
         loss_sum, loss_dict = self.loss(results, batch)
         for k, v in loss_dict.items():
@@ -177,7 +196,7 @@ class NeRFSystem(LightningModule):
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
     
         if batch_nb == 0:
-            H, W = batch['img_wh']
+            W, H = batch['img_wh']
 
             grid_img = visualize_val_image(
                 (W,H), batch, results, typ=typ

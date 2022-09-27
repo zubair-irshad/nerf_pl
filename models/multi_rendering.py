@@ -22,6 +22,8 @@ def inference_from_model(
     z_vals: torch.Tensor,
     chunk: int,
     instance_id: int,
+    bckg_latent = False,
+    disentagled = False
     # kwargs={},
 ):
     compute_3d_mask = instance_id > 0
@@ -43,13 +45,35 @@ def inference_from_model(
     dir_embedded_ = repeat(dir_embedded, "n1 c -> (n1 n2) c", n2=N_samples_)
     # (N_rays*N_samples_, embed_dir_channels)
     if compute_3d_mask:
-        inst_embedded_ = code_library.embedding_instance(
-            torch.ones(
-                (dir_embedded_.shape[0]), dtype=torch.long, device=dir_embedded_.device
+        if disentagled:
+            inst_embedded_shape = code_library.embedding_instance_shape(
+                torch.ones(
+                    (dir_embedded_.shape[0]), dtype=torch.long, device=dir_embedded_.device
+                )
+                * instance_id
             )
-            * instance_id
-        )
-        assert dir_embedded_.shape[0] == inst_embedded_.shape[0]
+            inst_embedded_appearance = code_library.embedding_instance_appearance(
+                torch.ones(
+                    (dir_embedded_.shape[0]), dtype=torch.long, device=dir_embedded_.device
+                )
+                * instance_id
+            )
+            assert dir_embedded_.shape[0] == inst_embedded_shape.shape[0]
+        else:
+            inst_embedded_ = code_library.embedding_instance(
+                torch.ones(
+                    (dir_embedded_.shape[0]), dtype=torch.long, device=dir_embedded_.device
+                )
+                * instance_id
+            )
+            assert dir_embedded_.shape[0] == inst_embedded_.shape[0]
+    
+    if bckg_latent:
+        inst_embedded_bckg = code_library.embedding_backgrounds(
+            (torch.ones((dir_embedded_.shape[0]), dtype=torch.long, device=dir_embedded_.device)* instance_id+1)[0]
+        ).unsqueeze(0)
+        bckg_codes, _ = model.sample_local_latents(inst_embedded_bckg, xyz.unsqueeze(0))
+        
 
     for i in range(0, B, chunk):
         xyz_embedded = embedding_xyz(xyz_[i : i + chunk])
@@ -61,12 +85,18 @@ def inference_from_model(
             "emb_dir": dir_embedded_[i : i + chunk],
         }
         if compute_3d_mask:
-            input_dict["obj_code"] = inst_embedded_[i : i + chunk]
+            if disentagled:
+                input_dict["obj_code_shape"] = inst_embedded_shape[i : i + chunk]
+                input_dict["obj_code_appearance"] = inst_embedded_appearance[i : i + chunk]
+            else:
+                input_dict["obj_code"] = inst_embedded_[i : i + chunk]
             # input_dict["obj_voxel"] = inst_voxel_embedded
             output = model.forward_instance(input_dict)
             mask_3d_instance_chunk += [output["inst_sigma"]]
             instance_rgb_chunk += [output["inst_rgb"]]
         else:
+            if bckg_latent:
+                input_dict["bckg_code"] = bckg_codes[i : i + chunk]
             output = model(input_dict, sigma_only=False)
             out_rgb_chunks += [output["rgb"]]
             out_sigma_chunks += [output["sigma"]]
@@ -184,9 +214,12 @@ def render_rays_multi(
     background_skip_bbox: Dict[str, Any] = None,  # skip rays inside the bbox
     c2w=None, 
     pose_delta=None,
-    bckg_img = None
+    bckg_img = None,
+    bckg_latent = False,
+    disentagled = False
     # **kwargs,
 ):
+    print("bckg_latent,disentagled", bckg_latent,disentagled  )
     embedding_xyz, embedding_dir = embeddings["xyz"], embeddings["dir"]
 
     assert len(rays_list) == len(obj_instance_ids)
@@ -252,6 +285,8 @@ def render_rays_multi(
             z_vals=z_vals_list[i],
             chunk=chunk,
             instance_id=obj_instance_ids[i],
+            bckg_latent = bckg_latent,
+            disentagled = disentagled
             # kwargs,
         )
 
@@ -324,6 +359,8 @@ def render_rays_multi(
                 z_vals=z_vals_fine_list[i],
                 chunk=chunk,
                 instance_id=obj_instance_ids[i],
+                bckg_latent = bckg_latent,
+                disentagled = disentagled
                 # kwargs,
             )
 

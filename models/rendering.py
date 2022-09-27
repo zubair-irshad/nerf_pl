@@ -149,8 +149,8 @@ def render_rays(models,
 
         # compute alpha by the formula (3)
         noise = torch.randn_like(sigmas) * noise_std
-        #alphas = 1-torch.exp(-deltas*torch.relu(sigmas+noise)) # (N_rays, N_samples_)
-        alphas = 1-torch.exp(-deltas*torch.nn.Softplus()(sigmas+noise))
+        alphas = 1-torch.exp(-deltas*torch.relu(sigmas+noise)) # (N_rays, N_samples_)
+        # alphas = 1-torch.exp(-deltas*torch.nn.Softplus()(sigmas+noise))
 
         alphas_shifted = \
             torch.cat([torch.ones_like(alphas[:, :1]), 1-alphas+1e-10], -1) # [1, 1-a1, 1-a2, ...]
@@ -212,6 +212,10 @@ def render_rays(models,
         z_vals = lower + (upper - lower) * perturb_rand
 
     xyz_coarse = rays_o + rays_d * rearrange(z_vals, 'n1 n2 -> n1 n2 1')
+
+    # print("xyz_coarse", xyz_coarse.shape)
+    # print("xyz_coarse", xyz_coarse)
+    # print("min max xyz course", torch.min(xyz_coarse), torch.max(xyz_coarse))
     results = {}
     inference(results, models['coarse'], 'coarse', xyz_coarse, z_vals, test_time, **kwargs)
 
@@ -321,8 +325,8 @@ def render_rays_conditional(models,
 
         # compute alpha by the formula (3)
         noise = torch.randn_like(sigmas) * noise_std
-        #alphas = 1-torch.exp(-deltas*torch.relu(sigmas+noise)) # (N_rays, N_samples_)
-        alphas = 1-torch.exp(-deltas*torch.nn.Softplus()(sigmas+noise))
+        alphas = 1-torch.exp(-deltas*torch.relu(sigmas+noise)) # (N_rays, N_samples_)
+        # alphas = 1-torch.exp(-deltas*torch.nn.Softplus()(sigmas+noise))
 
         alphas_shifted = \
             torch.cat([torch.ones_like(alphas[:, :1]), 1-alphas+1e-10], -1) # [1, 1-a1, 1-a2, ...]

@@ -74,12 +74,19 @@ class NeRFSystem(LightningModule):
         results = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
             extra_chunk = dict()
+            for k,v in extra.items():
+                isinstance(v, torch.Tensor):
+                    print("k,v", k,v.shape)
             for k, v in extra.items():
-                if isinstance(v, torch.Tensor):
+                if k == 'embedding_backgrounds':
+                    extra_chunk[k] = v
+                elif isinstance(v, torch.Tensor):
                     extra_chunk[k] = v[i : i + self.hparams.chunk]
                 else:
                     extra_chunk[k] = v
-
+            for k,v in extra_chunk.items():
+                isinstance(v, torch.Tensor):
+                    print("k,v", k,v.shape)
             rendered_ray_chunks = \
                 render_rays(self.models,
                             self.embeddings,
@@ -214,7 +221,8 @@ class NeRFSystem(LightningModule):
     #     return log
 
     def on_validation_start(self):
-        self.random_batch = np.random.randint(len(self.val_dataset)-1, size=1)[0]
+        # self.random_batch = np.random.randint(len(self.val_dataset)-1, size=1)[0]
+        self.random_batch = 0
 
     def validation_step(self, batch, batch_nb):
         all_psnr = []

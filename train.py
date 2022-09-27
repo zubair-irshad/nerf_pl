@@ -46,21 +46,24 @@ class NeRFSystem(LightningModule):
 
         # self.embeddings = None
 
-        self.nerf_coarse = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
-                                in_channels_dir=6*hparams.N_emb_dir+3)
-        # self.nerf_coarse = NeRF_TCNN(
-        #                         encoding="hashgrid",
-        #                     )
+        if self.hparams.use_tcnn:
+            self.nerf_coarse = NeRF_TCNN(
+                                    encoding="hashgrid",
+                                )
+        else:
+            self.nerf_coarse = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
+                                    in_channels_dir=6*hparams.N_emb_dir+3)
+
         self.models = {'coarse': self.nerf_coarse}
         load_ckpt(self.nerf_coarse, hparams.weight_path, 'nerf_coarse')
 
         if hparams.N_importance > 0:
-            # self.nerf_fine = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
-            #                       in_channels_dir=6*hparams.N_emb_dir+3)
+            self.nerf_fine = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
+                                  in_channels_dir=6*hparams.N_emb_dir+3)
             
-            self.nerf_fine =  NeRF_TCNN(
-                                encoding="hashgrid",
-                            )
+            # self.nerf_fine = NeRF_TCNN(
+            #                     encoding="hashgrid",
+            #                 )
             self.models['fine'] = self.nerf_fine
             load_ckpt(self.nerf_fine, hparams.weight_path, 'nerf_fine')
 
@@ -70,13 +73,13 @@ class NeRFSystem(LightningModule):
         print("B", B)
         results = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
-            print("=========================\n\n\n")
-            print("i", i)
-            print("i+self.hparams.chunk")
-            print("rayssssssss", rays.shape)
-            print("self.hparams.chunk", self.hparams.chunk)
-            print("rays[i:i+self.hparams.chunk]", rays[i:i+self.hparams.chunk].shape)
-            print("=========================\n\n\n")
+            # print("=========================\n\n\n")
+            # print("i", i)
+            # print("i+self.hparams.chunk")
+            # print("rayssssssss", rays.shape)
+            # print("self.hparams.chunk", self.hparams.chunk)
+            # print("rays[i:i+self.hparams.chunk]", rays[i:i+self.hparams.chunk].shape)
+            # print("=========================\n\n\n")
             rendered_ray_chunks = \
                 render_rays(self.models,
                             self.embeddings,
@@ -103,6 +106,10 @@ class NeRFSystem(LightningModule):
                   'img_wh': tuple(self.hparams.img_wh)}
             kwargs['spheric_poses'] = self.hparams.spheric_poses
             kwargs['val_num'] = self.hparams.num_gpus
+        elif self.hparams.dataset_name == 'objectron' or self.hparams.dataset_name == 'pd':
+            kwargs = {'root_dir': self.hparams.root_dir,
+                      'img_wh': tuple(self.hparams.img_wh),
+                      'white_back': self.hparams.white_back}
         elif self.hparams.dataset_name == 'co3d':
             kwargs = {'data_dir': self.hparams.root_dir}
             kwargs['category'] = 'laptop'
@@ -113,8 +120,12 @@ class NeRFSystem(LightningModule):
     def configure_optimizers(self):
         # self.optimizer = get_optimizer_tcnn(self.hparams, self.models)
         # scheduler = get_scheduler_tcnn(self.hparams, self.optimizer)
-        self.optimizer = get_optimizer(self.hparams, self.models)
-        scheduler = get_scheduler(self.hparams, self.optimizer)
+        if self.hparams.use_tcnn:
+            self.optimizer = get_optimizer_tcnn(self.hparams, self.models)
+            scheduler = get_scheduler_tcnn(self.hparams, self.optimizer)
+        else:
+            self.optimizer = get_optimizer(self.hparams, self.models)
+            scheduler = get_scheduler(self.hparams, self.optimizer)
         
         return [self.optimizer], [scheduler]
 
@@ -134,8 +145,8 @@ class NeRFSystem(LightningModule):
     
     def training_step(self, batch, batch_nb):
         rays, rgbs = batch['rays'], batch['rgbs']
-        for k,v in batch.items():
-            print(k,v.shape)
+        # for k,v in batch.items():
+        #     print(k,v.shape)
         results = self(rays)
         loss = self.loss(results, batch)
         # loss_sum, loss_dict = self.loss(results, batch)
@@ -171,16 +182,18 @@ class NeRFSystem(LightningModule):
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
     
         if batch_nb == 0:
-            H, W = batch['img_wh']
+            print("batch['img_wh']", batch['img_wh'])
+            print("hparams img wh", self.hparams.img_wh)
+            W, H = batch['img_wh']
             img = results[f'rgb_{typ}'].view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
             img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
             depth = visualize_depth(results[f'depth_{typ}'].view(H, W)) # (3, H, W)
             print("img gt deth before",img_gt.shape, depth.shape)
 
-            if self.hparams.dataset_name == 'objectron':
-                 img_gt = torch.rot90(img_gt.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
-                 depth = torch.rot90(depth.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
-                 img = torch.rot90(img.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+            # if self.hparams.dataset_name == 'objectron':
+            #      img_gt = torch.rot90(img_gt.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+            #      depth = torch.rot90(depth.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+            #      img = torch.rot90(img.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
 
             images = {"gt":img_gt, "predicted": img, "depth": depth}
             self.logger.experiment.log({

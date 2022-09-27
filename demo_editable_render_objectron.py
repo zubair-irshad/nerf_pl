@@ -9,115 +9,13 @@ sys.path.append(".")  # noqa
 import imageio
 import numpy as np
 from tqdm import tqdm
-from models.editable_renderer_objectron_canonical import EditableRenderer
-from scipy.spatial.transform import Rotation
+# from models.editable_renderer_objectron_canonical import EditableRenderer
+# from models.editable_renderer_co3d import EditableRenderer
+from models.editable_renderer_pd import EditableRenderer
 from datasets.depth_utils import *
 from PIL import Image
 from torchvision import transforms as T
-
-
-def create_spheric_poses(radius, n_poses=50):
-    """
-    Create circular poses around z axis.
-    Inputs:
-        radius: the (negative) height and the radius of the circle.
-
-    Outputs:
-        spheric_poses: (n_poses, 3, 4) the poses in the circular path
-    """
-    def spheric_pose(theta, phi, radius):
-        trans_t = lambda t : np.array([
-            [1,0,0,0],
-            [0,1,0,-0.9*t],
-            [0,0,1,t],
-            [0,0,0,1],
-        ])
-
-        rot_phi = lambda phi : np.array([
-            [1,0,0,0],
-            [0,np.cos(phi),-np.sin(phi),0],
-            [0,np.sin(phi), np.cos(phi),0],
-            [0,0,0,1],
-        ])
-
-        rot_theta = lambda th : np.array([
-            [np.cos(th),0,-np.sin(th),0],
-            [0,1,0,0],
-            [np.sin(th),0, np.cos(th),0],
-            [0,0,0,1],
-        ])
-
-        c2w = rot_theta(theta) @ rot_phi(phi) @ trans_t(radius)
-        c2w = np.array([[-1,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,1]]) @ c2w
-        return c2w
-
-    spheric_poses = []
-    for th in np.linspace(0, 2*np.pi, n_poses+1)[:-1]:
-        spheric_poses += [spheric_pose(-np.pi/2, th, radius)] # 36 degree view downwards
-    return np.stack(spheric_poses, 0)
-
-
-def move_camera_pose(pose, progress):
-    # control the camera move (spiral pose)
-    t = progress * np.pi * 4
-    # radii = 0
-    radii = 0.005
-    center = np.array([np.cos(t), -np.sin(t), -np.sin(0.5 * t)]) * radii
-    pose[:3, 3] += pose[:3, :3] @ center
-    return pose
-
-
-def get_pure_rotation(progress_11: float, max_angle: float = 0):
-    trans_pose = np.eye(4)
-    trans_pose[:3, :3] = Rotation.from_euler(
-        "y", progress_11 * max_angle, degrees=True
-    ).as_matrix()
-    return trans_pose
-
-
-def get_transformation_with_duplication_offset(progress, duplication_id: int):
-    trans_pose = get_pure_rotation(np.sin(progress * np.pi * 2), max_angle=30)
-    offset = 0.05
-    if duplication_id > 0:
-        trans_pose[0, 3] -= np.sin(progress * np.pi * 2) * offset
-        trans_pose[1, 3] -= 0.2
-    else:
-        trans_pose[0, 3] += np.sin(progress * np.pi * 2) * offset
-        trans_pose[1, 3] += 0.55
-    return trans_pose
-
-def get_scale_offset(progress, duplication_cnt):
-    trans_pose = get_pure_rotation(np.sin(progress * np.pi * 2), max_angle=20)
-    # offset = 0.05
-    # trans_pose = np.eye(4)
-
-    if duplication_cnt==0:
-        trans_pose[:3,:3] *= 0.17
-        trans_pose[1, 3] -= 0.075
-        trans_pose[0, 3] += 0.03
-        trans_pose[2, 3] -= 0.07
-    elif duplication_cnt ==1:
-        trans_pose[:3,:3] *= 0.16
-        trans_pose[1, 3] -= 0.08
-        trans_pose[0, 3] += 0.06
-        trans_pose[2, 3] -= 0.09
-    elif duplication_cnt ==2:
-        trans_pose[:3,:3] *= 0.16
-        trans_pose[1, 3] -= 0.075
-        trans_pose[0, 3] += 0.0
-        trans_pose[2, 3] -= 0.05
-    # elif duplication_cnt ==2:
-    #     trans_pose[:3,:3] *= 0.15
-    #     trans_pose[1, 3] -= 0.06
-    #     trans_pose[0, 3] += 0.07
-
-    # else:
-    #     trans_pose[0, 3] += np.sin(progress * np.pi * 2) * offset
-    #     trans_pose[1, 3] += 0.55
-
-
-    return trans_pose
-
+from utils.test_poses import *
 
 def main(config):
     render_path = f"debug/rendered_view/render_{config.prefix}/"
@@ -126,7 +24,7 @@ def main(config):
     renderer = EditableRenderer(config=config)
     renderer.load_frame_meta()
     # obj_id_list = config.obj_id_list  # e.g. [4, 6]
-    obj_id_list = [1,1,1]
+    obj_id_list = [1]
     for obj_id in obj_id_list:
         renderer.initialize_object_bbox(obj_id)
 
@@ -134,25 +32,34 @@ def main(config):
     W, H = config.img_wh
     # total_frames = config.total_frames
     # pose_frame_idx = config.test_frame
-    total_frames = 50
-    pose_frame_idx = 0
+    total_frames = 90
+    pose_frame_idx = 15
     # edit_type = "scale"
     edit_type = "pure_rotation"
 
-    background_name = '/home/ubuntu/nerf_pl/grocery_bckg_6.jpg'
-    bckg_img = Image.open(background_name)
-    transform = T.ToTensor()
+    # background_name = '/home/ubuntu/nerf_pl/grocery_bckg_6.jpg'
+    # bckg_img = Image.open(background_name)
+    # transform = T.ToTensor()
+    # # newsize = (1440, 1920)
     # newsize = (1440, 1920)
-    newsize = (1440, 1920)
-    bckg_img = bckg_img.resize(newsize)
-    bckg_img = bckg_img.transpose(Image.Transpose.ROTATE_90)
-    bckg_img = transform(bckg_img) # (h, w, 3)
-    print("bckg_img", bckg_img.shape)
-    bckg_img = bckg_img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
-    print("bckg_img", bckg_img.shape)
+    # bckg_img = bckg_img.resize(newsize)
+    # bckg_img = bckg_img.transpose(Image.Transpose.ROTATE_90)
+    # bckg_img = transform(bckg_img) # (h, w, 3)
+    # print("bckg_img", bckg_img.shape)
+    # bckg_img = bckg_img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+    # print("bckg_img", bckg_img.shape)
 
-    # poses_test = create_spheric_poses(0.28)
-    
+    # use spheric test poses
+    #poses_test = create_spheric_poses(1.7, total_frames)
+    # use train as test poses
+    poses_test = renderer.all_c2w
+
+    #use archimedan spiral
+    locations = get_archimedean_spiral(sphere_radius=1.5)
+    poses_test = [look_at(loc, [0,0,0])[0] for loc in locations]
+
+    trans_pose = None
+    p_rotation, p_translation =  None, None
     for idx in tqdm(range(total_frames)):
         # an example to set object pose
         # trans_pose = get_transformation(0.2)
@@ -171,6 +78,10 @@ def main(config):
                 )
             elif edit_type == "pure_rotation":
                 trans_pose = get_pure_rotation(progress_11=(progress * 2 - 1))
+            elif edit_type == "pure_translation":
+                trans_pose = get_pure_translation(progress_11=(progress * 2 - 1), axis='x')
+            elif edit_type == 'parallel_parking':
+                trans_pose, p_rotation, p_translation = parallel_parking_transform(trans_pose, p_rotation, p_translation, idx, total_frames, max_angle=80)
             else:
                 trans_pose = get_scale_offset(progress, obj_duplication_cnt)
             renderer.set_object_pose_transform(obj_id, trans_pose, obj_duplication_cnt)
@@ -190,14 +101,15 @@ def main(config):
         results = renderer.render_edit(
             h=H,
             w=W,
-            # camera_pose_Twc = poses_test[idx],
-            camera_pose_Twc=move_camera_pose(
-                renderer.get_camera_pose_focal_by_frame_idx(pose_frame_idx)[0],
-                idx / total_frames,
-            ),
-            focal=renderer.get_camera_pose_focal_by_frame_idx(pose_frame_idx)[1],
+            camera_pose_Twc = poses_test[idx],
+            # camera_pose_Twc=move_camera_pose(
+            #     renderer.get_camera_pose_focal_by_frame_idx(pose_frame_idx)[0],
+            #     idx / total_frames,
+            # ),
+            focal=renderer.get_camera_pose_focal_by_frame_idx(pose_frame_idx)[1]
+            # object_pose_Twc = renderer.get_camera_pose_focal_by_frame_idx(idx)[0]
             # bckg_img = bckg_img
-            bckg_img = None
+            # bckg_img = None
         )
 
         # results = renderer.render_edit(
@@ -214,7 +126,7 @@ def main(config):
 
         image_np = results[f'rgb_{typ}'].view(H, W, 3).detach().cpu().numpy()
         image_np = (image_np * 255).astype(np.uint8)
-        image_np = np.rot90(image_np, axes=(1,0))
+        # image_np = np.rot90(image_np, axes=(1,0))
         imageio.imwrite(image_out_path, image_np)
         
         depth_out_path = f"{render_path}/render_{idx:04d}_depth.png"
@@ -222,7 +134,7 @@ def main(config):
 
         depth_vis = depth2inv(torch.tensor(depth_pred).unsqueeze(0).unsqueeze(0))
         depth_vis = viz_inv_depth(depth_vis)
-        depth_vis = np.rot90(depth_vis, axes=(1,0))
+        # depth_vis = np.rot90(depth_vis, axes=(1,0))
 
         # depth_img = (depth_pred - np.min(depth_pred)) / (max(np.max(depth_pred) - np.min(depth_pred), 1e-8))
         # depth_img_ = cv2.applyColorMap((depth_img * 255).astype(np.uint8), cv2.COLORMAP_JET)

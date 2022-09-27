@@ -49,6 +49,8 @@ def get_pure_rotation(progress_11: float, max_angle: float = 20):
     return trans_pose
 
 
+
+
 def get_transformation_with_duplication_offset(progress, duplication_id: int):
     trans_pose = get_pure_rotation(np.sin(progress * np.pi * 2), max_angle=10)
     offset = 0.05

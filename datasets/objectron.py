@@ -134,8 +134,8 @@ class ObjectronDataset(Dataset):
         self.white_back = False
 
     def read_meta(self):
-        instance_name = 'cereal_box_batch-1_31'
-        self.base_dir = '/home/ubuntu/nerf_pl/data/objectron/'+instance_name
+        instance_name = 'camera_batch-1_0'
+        self.base_dir = '/home/ubuntu/nerf_pl/data/objectron/camera'+'/'+instance_name
         self.axis_align_mat = torch.FloatTensor(np.linalg.inv(read_objectron_info(self.base_dir, instance_name)))
         # self.axis_align_mat = torch.FloatTensor(read_objectron_info(self.base_dir, instance_name))
                 #json_files = [pos_json for pos_json in os.listdir(base_dir) if pos_json.endswith('.json')]
@@ -314,6 +314,7 @@ class ObjectronDataset(Dataset):
             sample = {
                 "rays": rays,
                 "rgbs": img,
+                "img_wh": self.img_wh,
                 "instance_mask": instance_mask,
                 "instance_mask_weight": instance_mask_weight,
                 "instance_ids": instance_ids,
@@ -340,6 +341,7 @@ class ObjectronDataset(Dataset):
 
             sample = {
                 "rays": rays,
-                "c2w": c2w
+                "c2w": c2w,
+                "img_wh": self.img_wh
             }  
         return sample

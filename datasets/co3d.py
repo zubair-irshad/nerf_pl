@@ -30,7 +30,7 @@ class CO3D_Instance(torch.utils.data.Dataset):
         self.ds = Dataset(data_dir = data_dir, category = category, instance = instance)
         self.cameras = self.ds.get_cameras()
         self.near = 0.2
-        self.far = 3.0
+        self.far = 30.0
         self.all_rays = []
         self.all_rgbs = []
         self.all_instance_masks = []
@@ -168,7 +168,7 @@ class CO3D_Instance(torch.utils.data.Dataset):
                 "instance_mask": instance_mask,
                 "instance_mask_weight": instance_mask_weight,
                 "instance_ids": instance_ids,
-                "img_wh": (H_new, W_new)
+                "img_wh": (W_new, H_new)
             }
         return sample
 

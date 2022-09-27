@@ -26,7 +26,6 @@ def sample_pdf(bins, weights, N_importance, det=False, eps=1e-5):
     cdf = torch.cumsum(pdf, -1) # (N_rays, N_samples), cumulative distribution function
     cdf = torch.cat([torch.zeros_like(cdf[: ,:1]), cdf], -1)  # (N_rays, N_samples_+1) 
                                                                # padded to 0~1 inclusive
-
     if det:
         u = torch.linspace(0, 1, N_importance, device=bins.device)
         u = u.expand(N_rays, N_importance)
@@ -99,8 +98,9 @@ def inference_model(
     dir_embedded_ = repeat(
         dir_embedded, "n1 1 c -> (n1 n2) c", n2=N_samples_
     )  # (N_rays*N_samples_, embed_dir_channels)
+    print("obj_codes before", embedding_instance.shape)
     obj_codes = repeat(embedding_instance, "n1 c -> (n1 n2) c", n2=N_samples_)
-
+    print("object codes after", obj_codes.shape)
     # Perform model inference to get rgb and raw sigma
     B = xyz_.shape[0]
     out_chunks = []

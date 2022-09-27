@@ -7,10 +7,12 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi', 'objectron_multi', 'nocs_bckg', 'llff_nsff', 'co3d'],
+                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi', 'objectron_multi', 'nocs_bckg', 'llff_nsff', 'co3d', 'pd', 'pdmultiobject'],
                         help='which dataset to train/val')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[640, 480],
                         help='resolution (img_w, img_h) of the image')
+    parser.add_argument('--white_back', default=False, action="store_true",
+                        help='try for synthetic scenes like blender')
     parser.add_argument('--spheric_poses', default=True, action="store_true",
                         help='whether images are taken in spheric poses (for llff)')
     parser.add_argument('--emb_dim', type=int, default=2458,
@@ -43,10 +45,13 @@ def get_opts():
 
     parser.add_argument('--splits', type=str, default=None,
                         help='which category to use')
+                        
+    parser.add_argument('--run_eval', default=False, action="store_true")
     parser.add_argument('--val_splits', type=str, default=None,
                         help='which category to use')
     parser.add_argument('--cat', type=str, default=None,
                         help='which category to use')
+    parser.add_argument('--use_tcnn', default=False, action="store_true")
 
     # params for latent codes:
     # 
@@ -67,14 +72,16 @@ def get_opts():
     parser.add_argument('--inst_D', type=int, default=4)
     parser.add_argument('--inst_W', type=int, default=128)
     parser.add_argument('--inst_skips', type=list, default=[2])
-
-    parser.add_argument('--batch_size', type=int, default=4096,
+    parser.add_argument('--batch_size', type=int, default=1024,
                         help='batch size')
-    parser.add_argument('--chunk', type=int, default=32*1024,
+    parser.add_argument('--chunk', type=int, default=16*2048,
                         help='chunk size to split the input to avoid OOM')
     parser.add_argument('--num_epochs', type=int, default=80,
                         help='number of training epochs')
     parser.add_argument('--num_gpus', type=int, default=1,
+                        help='number of gpus')
+
+    parser.add_argument('--run_max_steps', type=int, default=1000000,
                         help='number of gpus')
 
     parser.add_argument('--ckpt_path', type=str, default=None,

@@ -17,10 +17,10 @@ from objectron.schema import a_r_capture_metadata_pb2 as ar_metadata_protocol
 # from .google_scanned_utils import load_image_from_exr, load_seg_from_exr
 import struct
 
-from utils.bbox_utils_objectron import BBoxRayHelper
+from utils.bbox_utils_co3d import BBoxRayHelper
 from train_compositional import NeRFSystem
 from datasets.ray_utils import get_ray_directions, get_rays
-
+from datasets.co3d import CO3D_Instance as Co3d_Dataset
 #for disentagled shape and appearance
 # from models.multi_rendering_objectron import render_rays_multi
 
@@ -147,8 +147,8 @@ class EditableRenderer:
         # self.far = 1.5
 
         #For bottle
-        self.near = 0.02
-        self.far = 1.0
+        self.near = 0.2
+        self.far = 3.0
 
         self.object_to_remove = []
         self.active_object_ids = [0]
@@ -163,19 +163,28 @@ class EditableRenderer:
         ).cuda()
         self.system.eval()
 
+    
     def load_frame_meta(self):
-        instance_name = 'camera_batch-1_0'
-        self.base_dir = '/home/ubuntu/nerf_pl/data/objectron/camera/'+ instance_name
-                #json_files = [pos_json for pos_json in os.listdir(base_dir) if pos_json.endswith('.json')]
-        self.axis_align_mat = torch.FloatTensor(np.linalg.inv(read_objectron_info(self.base_dir, instance_name)))
-        sfm_arframe_filename = self.base_dir + '/'+instance_name+'_sfm_arframe.pbdata'
-        frame_data = load_frame_data(sfm_arframe_filename)
-        all_c2w, self.all_focal = make_poses_bounds_array(frame_data, near=self.near, far=self.far)
-        self.poses = all_c2w
+
+        data_dir = '/home/ubuntu/nerf_pl/data/co3d'
+        category = 'car'
+        instance = '106_12662_23043'
+        self.ds = Co3d_Dataset(data_dir = data_dir, category = category, instance = instance)
+        self.cameras = self.ds.cameras
+        self.scale_factor = self.ds.scale_factor
 
     def get_camera_pose_focal_by_frame_idx(self, frame_idx):
-        focal = self.all_focal[frame_idx]* (self.config.img_wh[0]/1920)
-        return self.poses[frame_idx], focal
+        camera = self.cameras[frame_idx]
+        # c2w = camera.get_pose_matrix().squeeze().cpu().numpy().copy()
+        # c2w[:3,3] /= self.scale_factor
+        c2w = self.ds.all_c2w[frame_idx]
+        
+        K = camera.get_intrinsics().squeeze().cpu().numpy()
+        H, W = camera.get_image_size()[0].cpu().numpy()
+        img_size = (H,W)
+        focal = K[0,0]
+        focal *=(self.config.img_wh[0]/W)
+        return c2w, focal
 
     def scene_inference(
         self,
@@ -204,7 +213,8 @@ class EditableRenderer:
                     N_importance=self.config.N_importance,
                     chunk=self.config.chunk,  # chunk size is effective in val mode
                     white_back=False,
-                    bckg_img = bckg_img
+                    bckg_latent = True,
+                    disentagled = True
                     **args,
                 )
 
@@ -226,11 +236,9 @@ class EditableRenderer:
             batch_near = near * torch.ones_like(rays_o[:, :1])
             batch_far = far* torch.ones_like(rays_o[:, :1])
             # rays_o = rays_o / self.scale_factor
-            rays_o, rays_d = transform_rays_to_bbox_coordinates_nocs(rays_o, rays_d, self.axis_align_mat.cuda())
             rays = torch.cat([rays_o, rays_d, batch_near, batch_far], 1)  # (H*W, 8)
 
         else:
-            rays_o, rays_d = transform_rays_to_bbox_coordinates_nocs(rays_o, rays_d, self.axis_align_mat.cuda())
             bbox_mask, bbox_batch_near, bbox_batch_far = self.object_bbox_ray_helpers[
                 str(obj_id)
             ].get_ray_bbox_intersections(
@@ -282,8 +290,9 @@ class EditableRenderer:
         bckg_img = None,
         show_progress: bool = True,
         render_bg_only: bool = False,
-        render_obj_only: bool = True,
-        white_back: bool = True,
+        render_obj_only: bool = False,
+        white_back: bool = False,
+        object_pose_Twc = None
     ):
         directions = get_ray_directions(h, w, focal).cuda()  # (h, w, 3)
         Twc = camera_pose_Twc
@@ -313,15 +322,14 @@ class EditableRenderer:
                 object_pose = self.object_pose_transform[
                     f"{obj_id}_{obj_duplication_cnt}"
                 ]
-                Tow_orig = self.get_object_bbox_helper(
-                    obj_id
-                ).get_world_to_object_transform()
+                Tow_orig = np.eye(4)
                 transform = np.linalg.inv(Tow_orig) @ object_pose @ Tow_orig
-                # transform = object_pose
                 Tow = np.linalg.inv(transform)
 
             processed_obj_id.append(obj_id)
             Toc = Tow @ Twc
+            # if obj_id !=0:
+            #     Toc = object_pose_Twc 
             Toc = torch.from_numpy(Toc).float().cuda()[:3, :4]
             # all the rays_o and rays_d has been converted to NeRF scale
             rays_o, rays_d = get_rays(directions, Toc)
@@ -356,7 +364,8 @@ class EditableRenderer:
                     white_back=white_back,
                     background_skip_bbox=background_skip_bbox,
                     # bckg_img = bckg_img[i : i + chunk],
-                    bckg_img = bckg_img,
+                    bckg_latent = True,
+                    disentagled = True,
                     **args,
                 )
             for k, v in rendered_ray_chunks.items():

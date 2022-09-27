@@ -379,7 +379,7 @@ class LLFFDatasetNOCS(Dataset):
                     sample = {
                         "instance_mask": instance_mask,
                         "instance_mask_weight": instance_mask_weight,
-                        "instance_ids": torch.ones_like(instance_mask).long() * instance_id,
+                        "instance_ids": torch.ones_like(instance_mask).long() * (i_inst+1),
                     }
                     curr_frame_instance_masks += [sample["instance_mask"]]
                     curr_frame_instance_masks_weight += [sample["instance_mask_weight"]]
