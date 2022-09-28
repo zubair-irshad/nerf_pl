@@ -286,6 +286,9 @@ class LitNeRFPP(LitModel):
 
     def training_step(self, batch, batch_idx):
 
+        for k,v in batch.items():
+            print(k,v.shape)
+
         rendered_results = self.model(
             batch, self.randomized, self.white_bkgd, self.near, self.far
         )
@@ -307,6 +310,8 @@ class LitNeRFPP(LitModel):
         return loss
 
     def render_rays(self, batch, batch_idx):
+        for k,v in batch.items():
+            print(k,v.shape)
         ret = {}
         rendered_results = self.model(
             batch, False, self.white_bkgd, self.near, self.far

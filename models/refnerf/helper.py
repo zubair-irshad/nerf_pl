@@ -222,6 +222,9 @@ def conical_frustum_to_gaussian(d, t0, t1, radius):
     t_var = (hw**2) / 3 - (4 / 15) * (
         (hw**4 * (12 * mu**2 - hw**2)) / (3 * mu**2 + hw**2) ** 2
     )
+    b = ((mu**2) / 4
+        + (5 / 12) * hw**2
+        - 4 / 15 * (hw**4) / (3 * mu**2 + hw**2))
     r_var = radius**2 * (
         (mu**2) / 4
         + (5 / 12) * hw**2

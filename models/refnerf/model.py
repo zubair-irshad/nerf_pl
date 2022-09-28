@@ -9,22 +9,21 @@
 # ------------------------------------------------------------------------------------
 
 import os
-from typing import Any, Callable
-
-import gin
+from typing import *
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
+from torch.utils.data import DataLoader
 
 import models.refnerf.helper as helper
 import models.refnerf.ref_utils as ref_utils
-import utils.store_image as store_image
+from models.utils import store_image, write_stats
 from models.interface import LitModel
+from datasets import dataset_dict
 
-
-@gin.configurable()
+# @gin.configurable()
 class RefNeRFMLP(nn.Module):
     def __init__(
         self,
@@ -220,7 +219,7 @@ class RefNeRFMLP(nn.Module):
         )
 
 
-@gin.configurable()
+# @gin.configurable()
 class RefNeRF(nn.Module):
     def __init__(
         self,
@@ -292,10 +291,11 @@ class RefNeRF(nn.Module):
         return ret
 
 
-@gin.configurable()
+# @gin.configurable()
 class LitRefNeRF(LitModel):
     def __init__(
         self,
+        hparams,
         lr_init: float = 5.0e-4,
         lr_final: float = 5.0e-6,
         lr_delay_steps: int = 2500,
@@ -311,16 +311,46 @@ class LitRefNeRF(LitModel):
     ):
 
         for name, value in vars().items():
-            if name not in ["self", "__class__"]:
+            if name not in ["self", "__class__", "hparams"]:
+                print(name, value)
                 setattr(self, name, value)
+        self.hparams.update(vars(hparams))
 
         super(LitRefNeRF, self).__init__()
         self.model = RefNeRF()
 
-    def setup(self, stage):
-        self.near = self.trainer.datamodule.near
-        self.far = self.trainer.datamodule.far
-        self.white_bkgd = self.trainer.datamodule.white_bkgd
+    def setup(self, stage: Optional[str] = None) -> None:
+
+        dataset = dataset_dict[self.hparams.dataset_name]
+        
+        if self.hparams.dataset_name == 'pd':
+            kwargs_train = {'root_dir': self.hparams.root_dir,
+                      'img_wh': tuple(self.hparams.img_wh),
+                      'white_back': self.hparams.white_back}
+            kwargs_val = {'root_dir': self.hparams.root_dir,
+                      'img_wh': tuple((int(self.hparams.img_wh[0]/8),int(self.hparams.img_wh[1]/8))),
+                      'white_back': self.hparams.white_back}
+
+        if self.hparams.run_eval:        
+            kwargs_test = {'root_dir': self.hparams.root_dir,
+                            'img_wh': tuple(self.hparams.img_wh),
+                            'white_back': self.hparams.white_back}
+            self.test_dataset = dataset(split='test', **kwargs_test)
+            self.near = self.test_dataset.near
+            self.far = self.test_dataset.far
+            self.white_bkgd = self.test_dataset.white_back
+
+        else:
+            self.train_dataset = dataset(split='train', **kwargs_train)
+            self.val_dataset = dataset(split='val', **kwargs_val)
+            self.near = self.train_dataset.near
+            self.far = self.train_dataset.far
+            self.white_bkgd = self.train_dataset.white_back
+
+    # def setup(self, stage):
+    #     self.near = self.trainer.datamodule.near
+    #     self.far = self.trainer.datamodule.far
+    #     self.white_bkgd = self.trainer.datamodule.white_bkgd
 
     def training_step(self, batch, batch_idx):
         rendered_results = self.model(
@@ -369,13 +399,16 @@ class LitRefNeRF(LitModel):
             batch, False, self.white_bkgd, self.near, self.far
         )
         rgb_fine = rendered_results[1]["comp_rgb"]
-        print("rgb_fine", rgb_fine.shape)
         target = batch["target"]
         ret["target"] = target
         ret["rgb"] = rgb_fine
         return ret
 
     def validation_step(self, batch, batch_idx):
+        for k,v in batch.items():
+            batch[k] = v.squeeze()
+            if k =='radii':
+                batch[k] = v.unsqueeze(-1)
         return self.render_rays(batch, batch_idx)
 
     def test_step(self, batch, batch_idx):
@@ -400,7 +433,7 @@ class LitRefNeRF(LitModel):
         using_lbfgs,
     ):
         step = self.trainer.global_step
-        max_steps = gin.query_parameter("run.max_steps")
+        max_steps = self.hparams.run_max_steps
 
         if self.lr_delay_steps > 0:
             delay_rate = self.lr_delay_mult + (1 - self.lr_delay_mult) * np.sin(
@@ -421,8 +454,29 @@ class LitRefNeRF(LitModel):
 
         optimizer.step(closure=optimizer_closure)
 
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset,
+                          shuffle=True,
+                          num_workers=4,
+                          batch_size=self.hparams.batch_size,
+                          pin_memory=True)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_dataset,
+                          shuffle=False,
+                          num_workers=4,
+                          batch_size=1, # validate one image (H*W rays) at a time
+                          pin_memory=True)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset,
+                        shuffle=False,
+                        num_workers=4,
+                        batch_size=self.hparams.batch_size,
+                        pin_memory=True)
+
     def validation_epoch_end(self, outputs):
-        val_image_sizes = self.trainer.datamodule.val_image_sizes
+        val_image_sizes = self.val_dataset.val_image_sizes
         rgbs = self.alter_gather_cat(outputs, "rgb", val_image_sizes)
         targets = self.alter_gather_cat(outputs, "target", val_image_sizes)
         psnr_mean = self.psnr_each(rgbs, targets).mean()
@@ -433,18 +487,25 @@ class LitRefNeRF(LitModel):
         self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
 
     def test_epoch_end(self, outputs):
-        dmodule = self.trainer.datamodule
-        all_image_sizes = (
-            dmodule.all_image_sizes
-            if not dmodule.eval_test_only
-            else dmodule.test_image_sizes
-        )
+        all_image_sizes = self.test_dataset.image_sizes
+        # dmodule = self.trainer.datamodule
+        # all_image_sizes = (
+        #     dmodule.all_image_sizes
+        #     if not dmodule.eval_test_only
+        #     else dmodule.test_image_sizes
+        # )
         rgbs = self.alter_gather_cat(outputs, "rgb", all_image_sizes)
         targets = self.alter_gather_cat(outputs, "target", all_image_sizes)
-        psnr = self.psnr(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
-        ssim = self.ssim(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
+        # psnr = self.psnr(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
+        # ssim = self.ssim(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
+        # lpips = self.lpips(
+        #     rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test
+        # )
+
+        psnr = self.psnr(rgbs, targets, None, None, None)
+        ssim = self.ssim(rgbs, targets, None, None, None)
         lpips = self.lpips(
-            rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test
+            rgbs, targets, None, None, None
         )
 
         self.log("test/psnr", psnr["test"], on_epoch=True)
@@ -452,11 +513,11 @@ class LitRefNeRF(LitModel):
         self.log("test/lpips", lpips["test"], on_epoch=True)
 
         if self.trainer.is_global_zero:
-            image_dir = os.path.join(self.logdir, "render_model")
+            image_dir = os.path.join("ckpts",self.hparams.exp_name, "render_model")
             os.makedirs(image_dir, exist_ok=True)
-            store_image.store_image(image_dir, rgbs)
+            store_image(image_dir, rgbs)
 
-            result_path = os.path.join(self.logdir, "results.json")
+            result_path = os.path.join("ckpts",self.hparams.exp_name, "results.json")
             self.write_stats(result_path, psnr, ssim, lpips)
 
         return psnr, ssim, lpips

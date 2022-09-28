@@ -8,11 +8,12 @@ from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.loggers import WandbLogger
 wandb_logger = WandbLogger()
 from models.nerfplusplus.model import LitNeRFPP
+from models.refnerf.model import LitRefNeRF
 from datasets import dataset_dict
 from torch.utils.data import DataLoader
 
 def main(hparams):
-    system = LitNeRFPP(hparams=hparams)
+    system = LitRefNeRF(hparams=hparams)
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
                             filename='{epoch:d}',
                             monitor='val/psnr',
@@ -36,7 +37,7 @@ def main(hparams):
 
     if hparams.run_eval:
         ckpt_path = (
-            f"ckpts/{hparams.exp_name}/epoch=4.ckpt"
+            f"ckpts/{hparams.exp_name}/epoch=26.ckpt"
         )
         trainer.test(system, ckpt_path=ckpt_path)
         # self.val_dataset = dataset(split='val', **kwargs_test)

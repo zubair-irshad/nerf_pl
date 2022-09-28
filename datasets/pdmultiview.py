@@ -16,54 +16,6 @@ from objectron.schema import annotation_data_pb2 as annotation_protocol
 import glob
 from utils.test_poses import *
 
-def create_spheric_poses(radius, n_poses=50):
-    """
-    Create circular poses around z axis.
-    Inputs:
-        radius: the (negative) height and the radius of the circle.
-
-    Outputs:
-        spheric_poses: (n_poses, 3, 4) the poses in the circular path
-    """
-    def spheric_pose(theta, phi, radius):
-        trans_t = lambda t : np.array([
-            [1,0,0,0],
-            [0,1,0,0.3*t],
-            [0,0,1,t],
-            [0,0,0,1],
-        ])
-
-        rot_phi = lambda phi : np.array([
-            [1,0,0,0],
-            [0,np.cos(phi),-np.sin(phi),0],
-            [0,np.sin(phi), np.cos(phi),0],
-            [0,0,0,1],
-        ])
-
-        rot_z = lambda phi : np.array([
-            [np.cos(phi),-np.sin(phi),0,0],
-            [np.sin(phi),np.cos(phi),0,0],
-            [0,0, 1,0],
-            [0,0,0,1],
-        ])
-
-        rot_theta = lambda th : np.array([
-            [np.cos(th),0,-np.sin(th),0],
-            [0,1,0,0],
-            [np.sin(th),0, np.cos(th),0],
-            [0,0,0,1],
-        ])
-        c2w =  rot_theta(theta) @ trans_t(radius) @ rot_phi(phi)
-        # c2w = rot_theta(theta) @ rot_phi(phi) @ trans_t(radius)
-        c2w = np.array([[-1,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,1]]) @ c2w
-        # c2w = rot_phi(phi) @ c2w
-        return c2w
-    spheric_poses = []
-    for th in np.linspace(0, 2*np.pi, n_poses+1)[:-1]:
-        #spheric_poses += [spheric_pose(th, -np.pi/5, radius)] # 36 degree view downwards
-        spheric_poses += [spheric_pose(th, -np.pi/15, radius)] # 36 degree view downwards
-    return np.stack(spheric_poses, 0)
-
 def read_poses(pose_dir, img_files):
     pose_file = os.path.join(pose_dir, 'pose.json')
     with open(pose_file, "r") as read_content:
@@ -98,8 +50,12 @@ class PDMultiView(Dataset):
     def read_meta(self):
         # self.base_dir = self.root_dir
 
-        # self.base_dir = os.path.join(self.root_dir, self.split)
-        self.base_dir = os.path.join(self.root_dir, 'train')
+        if self.split == 'val' or self.split == 'test':
+            split = 'val'
+        else:
+            split = 'train'
+        self.base_dir = os.path.join(self.root_dir, split)
+        # self.base_dir = os.path.join(self.root_dir, 'train')
         self.img_files = os.listdir(os.path.join(self.base_dir, 'rgb'))
         self.img_files.sort()
 
@@ -111,7 +67,7 @@ class PDMultiView(Dataset):
         print("self.focal", self.focal)
         self.focal *=(self.img_wh[0]/self.img_size[0])  # modify focal length to match size self.img_wh
         print("self.focal after", self.focal)
-        if self.split == 'train': # create buffer of all rays and rgb data
+        if self.split == 'train' or self.split == 'test': # create buffer of all rays and rgb data
             self.poses = []
             self.all_rays = []
             self.all_rgbs = []
@@ -119,12 +75,13 @@ class PDMultiView(Dataset):
             self.all_instance_masks = []
             self.all_instance_masks_weight = []
             self.all_instance_ids = []
+            self.all_radii = []
 
             for i, img_name in enumerate(self.img_files):
                 c2w = self.all_c2w[i]
                 directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
                 c2w = torch.FloatTensor(c2w)[:3, :4]
-                rays_o, view_dirs, rays_d = get_rays(directions, c2w, output_view_dirs=True)
+                rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
                 img = Image.open(os.path.join(self.base_dir, 'rgb', img_name))                
                 img = img.resize((w,h), Image.LANCZOS)
                 #Get masks
@@ -161,9 +118,12 @@ class PDMultiView(Dataset):
                 self.all_instance_masks +=[instance_mask]
                 self.all_instance_masks_weight +=[instance_mask_weight]
                 self.all_instance_ids +=[instance_ids]
+                self.all_radii +=[radii.unsqueeze(-1)]
+
             self.all_rays = torch.cat(self.all_rays, 0) # (len(self.meta['frames])*h*w, 3)
             self.all_rgbs = torch.cat(self.all_rgbs, 0)
             self.all_rays_d = torch.cat(self.all_rays_d, 0)
+            self.all_radii = torch.cat(self.all_radii, 0)
             self.all_instance_masks = torch.cat(self.all_instance_masks, 0) # (len(self.meta['frames])*h*w, 3)
             self.all_instance_masks_weight = torch.cat(self.all_instance_masks_weight, 0) # (len(self.meta['frames])*h*w, 3)
             self.all_instance_ids = torch.cat(self.all_instance_ids, 0) # (len(self.meta['frames])*h*w, 3)
@@ -185,18 +145,17 @@ class PDMultiView(Dataset):
             return 1 # only validate 8 images (to support <=8 gpus)
             # return len(self.all_c2w) # only validate 8 images (to support <=8 gpus)
         else:
-            return len(self.all_c2w)
+            return len(self.all_rays)
 
     def __getitem__(self, idx):
         if self.split == 'train': # use data in the buffers
-            
             # for running NeRFFactory RefNeRF ad NeRF++
             sample = {}
             sample["rays_o"] = self.all_rays[idx][:3]
             sample["rays_d"] = self.all_rays_d[idx]
             sample["viewdirs"] = self.all_rays[idx][3:6]
+            sample["radii"] = self.all_radii[idx]
             sample["target"] = self.all_rgbs[idx]
-            sample["radii"] = np.zeros((sample["rays_o"].shape[0], 1))
             sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
             sample["normals"] = np.zeros_like(sample["rays_o"])
             
@@ -210,16 +169,13 @@ class PDMultiView(Dataset):
         # elif self.split == 'val': # create data for each image separately
         elif self.split=='val':
             idx = 65
-        else:
-            idx = idx
-
             img_name = self.img_files[idx]
             w, h = self.img_wh
             c2w = self.all_c2w[idx]
             directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
             c2w = torch.FloatTensor(c2w)[:3, :4]
             # rays_o, rays_d = get_rays(directions, c2w)
-            rays_o, view_dirs, rays_d = get_rays(directions, c2w, output_view_dirs=True)
+            rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
             img = Image.open(os.path.join(self.base_dir, 'rgb', img_name))  
             img = img.resize((w,h), Image.LANCZOS)     
                     
@@ -250,42 +206,27 @@ class PDMultiView(Dataset):
                 -1), self.transform(instance_mask_weight).view(-1)
             instance_ids = torch.ones_like(instance_mask).long() * 1
             rays = torch.cat([rays_o, view_dirs, 
-                              self.near*torch.ones_like(rays_o[:, :1]),
-                              self.far*torch.ones_like(rays_o[:, :1])],
-                              1) # (H*W, 8)
+                                self.near*torch.ones_like(rays_o[:, :1]),
+                                self.far*torch.ones_like(rays_o[:, :1])],
+                                1) # (H*W, 8)
 
             sample = {}
             sample["rays_o"] = rays[:,:3]
             sample["rays_d"] = view_dirs
             sample["viewdirs"] = rays[:,3:6]
             sample["target"] = img
-            sample["radii"] = np.zeros((sample["rays_o"].shape[0], 1))
+            sample["radii"] = radii
             sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
             sample["normals"] = np.zeros_like(sample["rays_o"])
 
+        else:
+            sample = {}
+            sample["rays_o"] = self.all_rays[idx][:3]
+            sample["rays_d"] = self.all_rays_d[idx]
+            sample["viewdirs"] = self.all_rays[idx][3:6]
+            sample["radii"] = self.all_radii[idx]
+            sample["target"] = self.all_rgbs[idx]
+            sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
+            sample["normals"] = np.zeros_like(sample["rays_o"])
 
-            # sample = {
-            #     "rays": rays,
-            #     "rgbs": img,
-            #     "img_wh": self.img_wh,
-            #     "instance_mask": instance_mask,
-            #     "instance_mask_weight": instance_mask_weight,
-            #     "instance_ids": instance_ids,
-            # }
-        # else:
-        #     w, h = self.img_wh
-        #     c2w = self.poses_test[idx]           
-        #     directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
-
-        #     c2w = torch.FloatTensor(c2w)[:3, :4]
-        #     rays_o, rays_d = get_rays(directions, c2w)
-        #     rays = torch.cat([rays_o, rays_d, 
-        #                       self.near*torch.ones_like(rays_o[:, :1]),
-        #                       self.far*torch.ones_like(rays_o[:, :1])],
-        #                       1) # (H*W, 8)
-        #     sample = {
-        #         "rays": rays,
-        #         "c2w": c2w,
-        #         "img_wh": self.img_wh
-        #     }  
         return sample

@@ -63,7 +63,7 @@ def get_rays_background(directions, c2w, coords):
 
     return rays_o, rays_d
 
-def get_rays(directions, c2w, output_view_dirs = False):
+def get_rays(directions, c2w, output_view_dirs = False, output_radii = False):
     """
     Get ray origin and normalized directions in world coordinate for all pixels in one image.
     Reference: https://www.scratchapixel.com/lessons/3d-basic-rendering/
@@ -82,6 +82,13 @@ def get_rays(directions, c2w, output_view_dirs = False):
     #rays_d /= torch.norm(rays_d, dim=-1, keepdim=True)
     # The origin of all rays is the camera origin in world coordinate
     rays_o = c2w[:, 3].expand(rays_d.shape) # (H, W, 3)
+
+    if output_radii:
+        rays_d_orig = directions @ c2w[:, :3].T
+        dx = torch.sqrt(torch.sum((rays_d_orig[:-1, :, :] - rays_d_orig[1:, :, :]) ** 2, dim=-1))
+        dx = torch.cat([dx, dx[-2:-1, :]], dim=0)
+        radius = dx[..., None] * 2 / torch.sqrt(torch.tensor(12, dtype=torch.int8))
+        radius = radius.reshape(-1)
     
     if output_view_dirs:
         viewdirs = rays_d
@@ -89,7 +96,10 @@ def get_rays(directions, c2w, output_view_dirs = False):
         rays_d = rays_d.view(-1, 3)
         rays_o = rays_o.view(-1, 3)
         viewdirs = viewdirs.view(-1, 3)
-        return rays_o, viewdirs, rays_d  
+        if output_radii:
+            return rays_o, viewdirs, rays_d, radius
+        else:
+            return rays_o, viewdirs, rays_d  
     else:
         rays_d /= torch.norm(rays_d, dim=-1, keepdim=True)
         rays_d = rays_d.view(-1, 3)
