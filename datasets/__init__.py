@@ -7,6 +7,8 @@ from .objectron import ObjectronDataset
 from .objectron_multi import ObjectronMultiDataset
 from .srn import SRNDataset
 from .srn_multi import SRN_Multi
+
+#functorch doesnt work with pytorch3d so revert to pytorch 1.10 with cuda 11.3 to make it work with p3d
 from .co3d import CO3D_Instance
 from .pdmultiview import PDMultiView
 from .pdmultiobject import PDMultiObject

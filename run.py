@@ -9,16 +9,26 @@ from pytorch_lightning.loggers import WandbLogger
 wandb_logger = WandbLogger()
 from models.nerfplusplus.model import LitNeRFPP
 from models.refnerf.model import LitRefNeRF
-from datasets import dataset_dict
-from torch.utils.data import DataLoader
+from models.mipnerf360.model import LitMipNeRF360
 
 def main(hparams):
-    system = LitRefNeRF(hparams=hparams)
-    ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
-                            filename='{epoch:d}',
-                            monitor='val/psnr',
-                            mode='max',
-                            save_top_k=5)
+    system = LitMipNeRF360(hparams=hparams)
+
+    # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
+    #                           filename='{epoch:d}',
+    #                           monitor='val/psnr',
+    #                           mode='max',
+    #                           save_top_k=5)
+
+    ckpt_cb = ModelCheckpoint(
+        dirpath=f'ckpts/{hparams.exp_name}',
+        monitor='val/psnr',
+        filename='{epoch:d}',
+        save_top_k=5,
+        mode="max",
+        save_last=True,
+    )
+
     pbar = TQDMProgressBar(refresh_rate=1)
     callbacks = [ckpt_cb, pbar]
     wandb_logger = WandbLogger()
@@ -37,7 +47,7 @@ def main(hparams):
 
     if hparams.run_eval:
         ckpt_path = (
-            f"ckpts/{hparams.exp_name}/epoch=26.ckpt"
+            f"ckpts/{hparams.exp_name}/last.ckpt"
         )
         trainer.test(system, ckpt_path=ckpt_path)
         # self.val_dataset = dataset(split='val', **kwargs_test)

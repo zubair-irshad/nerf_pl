@@ -115,6 +115,7 @@ class NeRFSystem(LightningModule):
             kwargs['category'] = 'laptop'
             kwargs['instance'] = '112_13277_23636'
         self.train_dataset = dataset(split='train', **kwargs)
+        #hard coding
         self.val_dataset = dataset(split='val', **kwargs)
 
     def configure_optimizers(self):

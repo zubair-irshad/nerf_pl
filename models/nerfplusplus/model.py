@@ -262,11 +262,11 @@ class LitNeRFPP(LitModel):
         
         if self.hparams.dataset_name == 'pd':
             kwargs_train = {'root_dir': self.hparams.root_dir,
-                      'img_wh': tuple(self.hparams.img_wh),
-                      'white_back': self.hparams.white_back}
+                             'img_wh': tuple(self.hparams.img_wh),
+                                'white_back': self.hparams.white_back}
             kwargs_val = {'root_dir': self.hparams.root_dir,
-                      'img_wh': tuple((int(self.hparams.img_wh[0]/8),int(self.hparams.img_wh[1]/8))),
-                      'white_back': self.hparams.white_back}
+                            'img_wh': tuple((int(self.hparams.img_wh[0]/4),int(self.hparams.img_wh[1]/4))),
+                                'white_back': self.hparams.white_back}
 
         if self.hparams.run_eval:        
             kwargs_test = {'root_dir': self.hparams.root_dir,

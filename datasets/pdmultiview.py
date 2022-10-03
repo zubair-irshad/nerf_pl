@@ -50,8 +50,12 @@ class PDMultiView(Dataset):
     def read_meta(self):
         # self.base_dir = self.root_dir
 
-        if self.split == 'val' or self.split == 'test':
-            split = 'val'
+        # if self.split == 'val' or self.split == 'test':
+        #     split = 'val'
+        # else:
+        #     split = 'train'
+        if self.split == 'val':
+            split = 'train'
         else:
             split = 'train'
         self.base_dir = os.path.join(self.root_dir, split)
@@ -59,9 +63,13 @@ class PDMultiView(Dataset):
         self.img_files = os.listdir(os.path.join(self.base_dir, 'rgb'))
         self.img_files.sort()
 
-        #for bottle
-        self.near = 2.0
-        self.far = 6.0
+        #for object centric
+        # self.near = 2.0
+        # self.far = 6.0
+
+        #for backgrond modelling as well
+        self.near = 0.2
+        self.far = 3.0
         self.all_c2w, self.focal, self.img_size = read_poses(pose_dir = os.path.join(self.base_dir, 'pose'), img_files= self.img_files)
         w, h = self.img_wh
         print("self.focal", self.focal)
@@ -142,8 +150,8 @@ class PDMultiView(Dataset):
         if self.split == 'train':
             return len(self.all_rays)
         if self.split == 'val':
-            return 1 # only validate 8 images (to support <=8 gpus)
-            # return len(self.all_c2w) # only validate 8 images (to support <=8 gpus)
+            # return 1 # only validate 8 images (to support <=8 gpus)
+            return len(self.all_c2w) # only validate 8 images (to support <=8 gpus)
         else:
             return len(self.all_rays)
 
@@ -168,7 +176,8 @@ class PDMultiView(Dataset):
             # }
         # elif self.split == 'val': # create data for each image separately
         elif self.split=='val':
-            idx = 65
+            # idx = 65
+            idx = idx
             img_name = self.img_files[idx]
             w, h = self.img_wh
             c2w = self.all_c2w[idx]
@@ -211,6 +220,14 @@ class PDMultiView(Dataset):
                                 1) # (H*W, 8)
 
             sample = {}
+            # sample = {
+            #     "rays": rays,
+            #     "rgbs": img,
+            #     "img_wh": self.img_wh,
+            #     "instance_mask": instance_mask,
+            #     "instance_mask_weight": instance_mask_weight,
+            #     "instance_ids": instance_ids
+            # }
             sample["rays_o"] = rays[:,:3]
             sample["rays_d"] = view_dirs
             sample["viewdirs"] = rays[:,3:6]
