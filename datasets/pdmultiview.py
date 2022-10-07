@@ -34,7 +34,7 @@ def read_poses(pose_dir, img_files):
 
 
 class PDMultiView(Dataset):
-    def __init__(self, root_dir, split='train', img_wh=(640, 480), white_back=True):
+    def __init__(self, root_dir, split='train', img_wh=(640, 480), white_back=False):
         self.root_dir = root_dir
         self.split = split
         print("img_wh", img_wh)
@@ -54,22 +54,22 @@ class PDMultiView(Dataset):
         #     split = 'val'
         # else:
         #     split = 'train'
-        if self.split == 'val':
-            split = 'train'
-        else:
-            split = 'train'
-        self.base_dir = os.path.join(self.root_dir, split)
+        # if self.split == 'val':
+        #     split = 'train'
+        # else:
+        #     split = 'train'
+        self.base_dir = os.path.join(self.root_dir, self.split)
         # self.base_dir = os.path.join(self.root_dir, 'train')
         self.img_files = os.listdir(os.path.join(self.base_dir, 'rgb'))
         self.img_files.sort()
 
         #for object centric
-        # self.near = 2.0
-        # self.far = 6.0
+        self.near = 2.0
+        self.far = 6.0
 
         #for backgrond modelling as well
-        self.near = 0.2
-        self.far = 3.0
+        # self.near = 0.2
+        # self.far = 3.0
         self.all_c2w, self.focal, self.img_size = read_poses(pose_dir = os.path.join(self.base_dir, 'pose'), img_files= self.img_files)
         w, h = self.img_wh
         print("self.focal", self.focal)
@@ -150,34 +150,34 @@ class PDMultiView(Dataset):
         if self.split == 'train':
             return len(self.all_rays)
         if self.split == 'val':
-            # return 1 # only validate 8 images (to support <=8 gpus)
-            return len(self.all_c2w) # only validate 8 images (to support <=8 gpus)
+            return 1 # only validate 8 images (to support <=8 gpus)
+            # return len(self.all_c2w) # only validate 8 images (to support <=8 gpus)
         else:
             return len(self.all_rays)
 
     def __getitem__(self, idx):
         if self.split == 'train': # use data in the buffers
             # for running NeRFFactory RefNeRF ad NeRF++
-            sample = {}
-            sample["rays_o"] = self.all_rays[idx][:3]
-            sample["rays_d"] = self.all_rays_d[idx]
-            sample["viewdirs"] = self.all_rays[idx][3:6]
-            sample["radii"] = self.all_radii[idx]
-            sample["target"] = self.all_rgbs[idx]
-            sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
-            sample["normals"] = np.zeros_like(sample["rays_o"])
+            # sample = {}
+            # sample["rays_o"] = self.all_rays[idx][:3]
+            # sample["rays_d"] = self.all_rays_d[idx]
+            # sample["viewdirs"] = self.all_rays[idx][3:6]
+            # sample["radii"] = self.all_radii[idx]
+            # sample["target"] = self.all_rgbs[idx]
+            # sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
+            # sample["normals"] = np.zeros_like(sample["rays_o"])
             
-            # sample = {
-            #     "rays": self.all_rays[idx],
-            #     "rgbs": self.all_rgbs[idx],
-            #     "instance_mask": self.all_instance_masks[idx],
-            #     "instance_mask_weight": self.all_instance_masks_weight[idx],
-            #     "instance_ids": self.all_instance_ids[idx],
-            # }
+            sample = {
+                "rays": self.all_rays[idx],
+                "rgbs": self.all_rgbs[idx],
+                "instance_mask": self.all_instance_masks[idx],
+                "instance_mask_weight": self.all_instance_masks_weight[idx],
+                "instance_ids": self.all_instance_ids[idx],
+            }
         # elif self.split == 'val': # create data for each image separately
         elif self.split=='val':
-            # idx = 65
-            idx = idx
+            idx = 65
+            # idx = idx
             img_name = self.img_files[idx]
             w, h = self.img_wh
             c2w = self.all_c2w[idx]
@@ -220,21 +220,21 @@ class PDMultiView(Dataset):
                                 1) # (H*W, 8)
 
             sample = {}
-            # sample = {
-            #     "rays": rays,
-            #     "rgbs": img,
-            #     "img_wh": self.img_wh,
-            #     "instance_mask": instance_mask,
-            #     "instance_mask_weight": instance_mask_weight,
-            #     "instance_ids": instance_ids
-            # }
-            sample["rays_o"] = rays[:,:3]
-            sample["rays_d"] = view_dirs
-            sample["viewdirs"] = rays[:,3:6]
-            sample["target"] = img
-            sample["radii"] = radii
-            sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
-            sample["normals"] = np.zeros_like(sample["rays_o"])
+            sample = {
+                "rays": rays,
+                "rgbs": img,
+                "img_wh": self.img_wh,
+                "instance_mask": instance_mask,
+                "instance_mask_weight": instance_mask_weight,
+                "instance_ids": instance_ids
+            }
+            # sample["rays_o"] = rays[:,:3]
+            # sample["rays_d"] = view_dirs
+            # sample["viewdirs"] = rays[:,3:6]
+            # sample["target"] = img
+            # sample["radii"] = radii
+            # sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
+            # sample["normals"] = np.zeros_like(sample["rays_o"])
 
         else:
             sample = {}

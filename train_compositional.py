@@ -173,8 +173,9 @@ class NeRFSystem(LightningModule):
 
     def validation_step(self, batch, batch_nb):
         rays, rgbs = batch['rays'], batch['rgbs']
-        # for k,v in batch.items():
-        #     print(k,v.shape)
+        for k,v in batch.items():
+            if torch. is_tensor(v):
+                print(k,v.shape)
         rays = rays.squeeze() # (H*W, 3)
         rgbs = rgbs.squeeze() # (H*W, 3)
 
