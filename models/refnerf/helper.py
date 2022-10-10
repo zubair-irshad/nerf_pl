@@ -21,6 +21,18 @@ def img2mse(x, y):
 def mse2psnr(x):
     return -10.0 * torch.log(x) / np.log(10)
 
+def get_parameters(models):
+    """Get all model parameters recursively."""
+    parameters = []
+    if isinstance(models, list):
+        for model in models:
+            parameters += get_parameters(model)
+    elif isinstance(models, dict):
+        for model in models.values():
+            parameters += get_parameters(model)
+    else: # models is actually a single pytorch model
+        parameters += list(models.parameters())
+    return parameters
 
 def linear_to_srgb(linear, eps=1e-10):
     eps = torch.finfo(torch.float32).eps
@@ -57,10 +69,14 @@ def sample_along_rays(
         t_vals = lower + (upper - lower) * t_rand
     else:
         t_vals = torch.broadcast_to(t_vals, (bsz, num_samples + 1))
-
-    means, covs = cast_rays(t_vals, rays_o, rays_d, radii, ray_shape)
-
-    return t_vals, (means, covs)
+    if ray_shape == "cone" or ray_shape == "cylinder":
+        means, covs = cast_rays(t_vals, rays_o, rays_d, radii, ray_shape)
+        return t_vals, (means, covs)  
+    else:
+        coords = cast_rays(t_vals, rays_o, rays_d, radii, ray_shape)
+        return t_vals, coords  
+    # means, covs = cast_rays(t_vals, rays_o, rays_d, radii, ray_shape)
+    # return t_vals, (means, covs)
 
 
 def resample_along_rays(
@@ -87,9 +103,14 @@ def resample_along_rays(
     if stop_level_grad:
         new_t_vals = new_t_vals.detach()
 
-    means, covs = cast_rays(new_t_vals, rays_o, rays_d, radii, ray_shape)
-
-    return new_t_vals, (means, covs)
+    if ray_shape == "cone" or ray_shape == "cylinder":
+        means, covs = cast_rays(new_t_vals, rays_o, rays_d, radii, ray_shape)
+        return new_t_vals, (means, covs)  
+    else:
+        coords = cast_rays(new_t_vals, rays_o, rays_d, radii, ray_shape)
+        return new_t_vals, coords  
+    # means, covs = cast_rays(new_t_vals, rays_o, rays_d, radii, ray_shape)
+    # return new_t_vals, (means, covs)
 
 
 # 2**(-52) is the minimum epsilon value
@@ -147,6 +168,30 @@ def integrated_pos_enc(means, covs, min_deg, max_deg):
     )[0]
 
 
+def volumetric_rendering_opacity(density, t_vals):
+
+    eps = 1e-10
+
+    dists = torch.cat(
+        [
+            t_vals[..., 1:] - t_vals[..., :-1],
+            torch.ones(t_vals[..., :1].shape, device=t_vals.device) * 1e10,
+        ],
+        dim=-1,
+    )    
+    alpha = 1.0 - torch.exp(-density[..., 0] * dists)
+    accum_prod = torch.cat(
+        [
+            torch.ones_like(alpha[..., :1]),
+            torch.cumprod(1.0 - alpha[..., :-1] + eps, dim=-1),
+        ],
+        dim=-1,
+    )
+
+    weights = alpha * accum_prod
+    acc = weights.sum(dim=-1)
+    return acc, weights
+
 def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd):
     t_mids = 0.5 * (t_vals[..., :-1] + t_vals[..., 1:])
     t_dists = t_vals[..., 1:] - t_vals[..., :-1]
@@ -155,13 +200,9 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd):
     density_delta = density[..., 0] * delta
 
     alpha = 1 - torch.exp(-density_delta)
-    trans = torch.exp(
-        -torch.cat(
-            [
-                torch.zeros_like(density_delta[..., :1]),
-                torch.cumsum(density_delta[..., :-1], dim=-1),
-            ],
-            dim=-1,
+    trans = torch.exp(-torch.cat([torch.zeros_like(density_delta[..., :1]),
+                                torch.cumsum(density_delta[..., :-1], dim=-1),
+                                ],dim=-1,
         )
     )
     weights = alpha * trans
@@ -251,7 +292,8 @@ def cast_rays(t_vals, origins, directions, radii, ray_shape):
     elif ray_shape == "cylinder":
         gaussian_fn = cylinder_to_gaussian
     else:
-        assert False
+        return origins[..., None, :] + t_vals[..., None] * directions[..., None, :]
+
     means, covs = gaussian_fn(directions, t0, t1, radii)
     means = means + origins[..., None, :]
     return means, covs

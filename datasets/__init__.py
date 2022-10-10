@@ -10,7 +10,7 @@ from .srn_multi import SRN_Multi
 
 #functorch doesnt work with pytorch3d so revert to pytorch 1.10 with cuda 11.3 to make it work with p3d
 # from .co3d import CO3D_Instance
-from .pdmultiview import PDMultiView
+from .pd import PDDataset
 from .pdmultiobject import PDMultiObject
 
 dataset_dict = {'blender': BlenderDataset,
@@ -24,7 +24,7 @@ dataset_dict = {'blender': BlenderDataset,
                 'srn': SRNDataset,
                 'srn_multi': SRN_Multi,
                 # 'co3d': CO3D_Instance,
-                'pd': PDMultiView,
+                'pd': PDDataset,
                 'pdmultiobject': PDMultiObject}
 
 # dataset_dict = {'blender': BlenderDataset,

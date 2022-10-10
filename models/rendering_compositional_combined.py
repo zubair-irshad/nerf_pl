@@ -101,6 +101,9 @@ def inference_model(
     #print("bckg_codes", bckg_codes.shape, embedding_backgrounds.shape)
     xyz_ = rearrange(xyz.squeeze(0), 'n1 n2 c -> (n1 n2) c') # (N_rays*N_samples_, 3)
 
+    print("xyz", xyz.shape)
+    print("embedding_xyz", embedding_xyz(xyz_).shape)
+
     # Embed direction
     dir_embedded = embedding_dir(rays_d)  # (N_rays, embed_dir_channels)
     dir_embedded_ = repeat(

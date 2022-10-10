@@ -102,3 +102,21 @@ def visualize_val_image_instance(img_wh, batch, results, typ="fine"):
     grid = make_grid(stack, nrow=2)
     img = T.ToPILImage()(grid)
     return img
+
+
+def visualize_val_opacity(img_wh, batch, results):
+    W, H = img_wh
+    opacity = visualize_depth(results["acc"].unsqueeze(-1).view(H, W),
+        vmin=0,
+        vmax=1,
+    )  # (3, H, W)
+    target_mask = visualize_depth(batch["instance_mask"].unsqueeze(-1).view(H, W),
+        vmin=0,
+        vmax=1,
+    )# (3, H, W)
+    stack = torch.stack(
+        [target_mask, opacity]
+    )  # (6, 3, H, W)
+    grid = make_grid(stack, nrow=1)
+    img = T.ToPILImage()(grid)
+    return img

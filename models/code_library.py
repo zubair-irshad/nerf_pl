@@ -17,18 +17,14 @@ class CodeLibrary(nn.Module):
         )
     def forward(self, inputs):
         ret_dict = dict()
-
-        # if 'frame_idx' in inputs:
-        #     ret_dict['embedding_a'] = self.embedding_a(inputs['frame_idx'].squeeze())
-        # print("inputs[instance_ids].squeeze()", inputs["instance_ids"].squeeze().shape)
-        # print("inputs[instance_ids].squeeze()", inputs["instance_ids"].shape)
-        
-        # print("self.embedding_instance(inputs[instance_ids].squeeze()", self.embedding_instance(
-        #         inputs["instance_ids"].squeeze().shape))
         if "instance_ids" in inputs:
+            # ret_dict["embedding_instance"] = self.embedding_instance(
+            #     inputs["instance_ids"].squeeze()
+            # )
+            #shape (1,128) for voxel grid optimization
             ret_dict["embedding_instance"] = self.embedding_instance(
-                inputs["instance_ids"].squeeze()
-            )
+                inputs["instance_ids"].squeeze()[0]
+            ).unsqueeze(0)
 
         return ret_dict
 

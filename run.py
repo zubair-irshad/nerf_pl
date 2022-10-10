@@ -8,11 +8,12 @@ from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.loggers import WandbLogger
 wandb_logger = WandbLogger()
 from models.nerfplusplus.model import LitNeRFPP
-from models.refnerf.model import LitRefNeRF
-from models.mipnerf360.model import LitMipNeRF360
+# from models.refnerf.model import LitRefNeRF
+from models.refnerf.model_disentagled import LitRefNeRF
+# from models.mipnerf360.model import LitMipNeRF360
 
 def main(hparams):
-    system = LitMipNeRF360(hparams=hparams)
+    system = LitRefNeRF(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',

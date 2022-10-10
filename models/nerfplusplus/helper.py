@@ -56,7 +56,9 @@ def sample_along_rays(
         t_vals = torch.broadcast_to(t_vals, (bsz, num_samples + 1))
 
     if in_sphere:
+        print("t_vals", t_vals.shape, rays_o.shape, rays_d.shape)
         coords = cast_rays(t_vals, rays_o, rays_d)
+        print("coords", coords.shape)
     else:
         t_vals = torch.flip(
             t_vals,

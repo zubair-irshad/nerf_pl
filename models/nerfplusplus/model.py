@@ -212,7 +212,8 @@ class NeRFPP(nn.Module):
 
             fg_rgb, fg_sigma = predict(fg_samples, fg_mlp)
             bg_rgb, bg_sigma = predict(bg_samples, bg_mlp)
-
+            
+            print("fg_t_vals", fg_t_vals.shape, fg_rgb.shape, fg_sigma.shape)
             fg_comp_rgb, fg_acc, fg_weights, bg_lambda = helper.volumetric_rendering(
                 fg_rgb,
                 fg_sigma,
@@ -222,6 +223,7 @@ class NeRFPP(nn.Module):
                 in_sphere=True,
                 t_far=far,
             )
+            print("fg_comp_rgb, fg_acc, fg_weights, bg_lambda", fg_comp_rgb.shape, fg_acc.shape, fg_weights.shape, bg_lambda)
             bg_comp_rgb, bg_acc, bg_weights, _ = helper.volumetric_rendering(
                 bg_rgb,
                 bg_sigma,
@@ -263,10 +265,12 @@ class LitNeRFPP(LitModel):
         if self.hparams.dataset_name == 'pd':
             kwargs_train = {'root_dir': self.hparams.root_dir,
                              'img_wh': tuple(self.hparams.img_wh),
-                                'white_back': self.hparams.white_back}
+                                'white_back': self.hparams.white_back,
+                                'model_type': 'nerfpp'}
             kwargs_val = {'root_dir': self.hparams.root_dir,
                             'img_wh': tuple((int(self.hparams.img_wh[0]/4),int(self.hparams.img_wh[1]/4))),
-                                'white_back': self.hparams.white_back}
+                                'white_back': self.hparams.white_back,
+                                'model_type': 'nerfpp'}
 
         if self.hparams.run_eval:        
             kwargs_test = {'root_dir': self.hparams.root_dir,

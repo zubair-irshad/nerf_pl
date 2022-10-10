@@ -1344,6 +1344,7 @@ class ObjectBckgNeRFGSN(nn.Module):
     def forward_instance(self, inputs, sigma_only=False):
         output_dict = {}
         emb_xyz = inputs["emb_xyz"]
+        print("emb_xyz", emb_xyz.shape)
         input_dir = inputs.get("emb_dir", None)
         obj_code_shape = inputs["obj_code_shape"]
         obj_code_appearance = inputs["obj_code_appearance"]
@@ -1361,6 +1362,7 @@ class ObjectBckgNeRFGSN(nn.Module):
                 x_ = torch.cat([input_x, x_], -1)
             x_ = getattr(self, f"instance_encoding_{i+1}")(x_)
         inst_sigma = self.instance_sigma(x_)
+        print("inst_sigma", inst_sigma.shape)
         output_dict["inst_sigma"] = inst_sigma
 
         if sigma_only:

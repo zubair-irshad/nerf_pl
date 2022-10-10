@@ -131,16 +131,19 @@ class RefNeRFMLP(nn.Module):
 
         with torch.set_grad_enabled(True):
             means.requires_grad_(True)
+            print("means", means.shape, covs.shape)
             x = helper.integrated_pos_enc(
                 means=means,
                 covs=covs,
                 min_deg=self.min_deg_point,
                 max_deg=self.max_deg_point,
             )
+            print("x after pos enc", x.shape)
             num_samples, feat_dim = x.shape[1:]
             x = x.reshape(-1, feat_dim)
 
             inputs = x
+            print("inputs x", inputs.shape)
             for idx in range(self.netdepth):
                 x = self.pts_linears[idx](x)
                 x = self.net_activation(x)
@@ -149,6 +152,8 @@ class RefNeRFMLP(nn.Module):
 
             raw_density = self.density_layer(x)
 
+            print("raw_density", raw_density.shape)
+
             raw_density_grad = torch.autograd.grad(
                 outputs=raw_density.sum(), inputs=means, retain_graph=True
             )[0]
@@ -156,16 +161,19 @@ class RefNeRFMLP(nn.Module):
             raw_density_grad = raw_density_grad.reshape(
                 -1, num_samples, self.num_normal_channels
             )
-
+            print("raw_density_grad", raw_density_grad.shape)
             normals = -ref_utils.l2_normalize(raw_density_grad)
             means.detach()
 
         density = self.density_activation(raw_density + self.density_bias)
         density = density.reshape(-1, num_samples, self.num_density_channels)
 
+        print("density out", density.shape)
+
         grad_pred = self.normal_layer(x).reshape(
             -1, num_samples, self.num_normal_channels
         )
+        print("grad_pred", grad_pred.shape)
         normals_pred = -ref_utils.l2_normalize(grad_pred)
         normals_to_use = normals_pred
 
@@ -326,10 +334,12 @@ class LitRefNeRF(LitModel):
         if self.hparams.dataset_name == 'pd':
             kwargs_train = {'root_dir': self.hparams.root_dir,
                       'img_wh': tuple(self.hparams.img_wh),
-                      'white_back': self.hparams.white_back}
+                      'white_back': self.hparams.white_back,
+                      'model_type': 'refnerf'}
             kwargs_val = {'root_dir': self.hparams.root_dir,
                       'img_wh': tuple((int(self.hparams.img_wh[0]/8),int(self.hparams.img_wh[1]/8))),
-                      'white_back': self.hparams.white_back}
+                      'white_back': self.hparams.white_back,
+                      'model_type': 'refnerf'}
 
         if self.hparams.run_eval:        
             kwargs_test = {'root_dir': self.hparams.root_dir,

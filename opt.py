@@ -53,6 +53,9 @@ def get_opts():
                         help='which category to use')
     parser.add_argument('--use_tcnn', default=False, action="store_true")
 
+    parser.add_argument('--model_type', type=str, default='geometry',
+                        help='which model to use i.e. geometry or render for refnerf')
+
     # params for latent codes:
     # 
     parser.add_argument('--N_max_objs', type=int, default=100,

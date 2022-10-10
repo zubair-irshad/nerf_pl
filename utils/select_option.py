@@ -6,8 +6,8 @@
 
 from typing import *
 
-from datasets.pdmultiview import (
-    PDMultiView
+from datasets.pd import (
+    PDDataset
     # LitDataBlender,
     # LitDataBlenderMultiScale,
     # LitDataLF,
@@ -73,7 +73,7 @@ def select_dataset(
     elif dataset_name == "refnerf_real":
         data_fun = LitDataRefNeRFReal
     elif dataset_name == "pd":
-        data_fun = PDMultiView
+        data_fun = PDDataset
 
     return data_fun(
         datadir=datadir,
