@@ -127,92 +127,132 @@ class NeRFSystem(LightningModule):
                           batch_size=1, # validate one image (H*W rays) at a time
                           pin_memory=True)
     
+    # def training_step(self, batch, batch_nb):
+    #     print("batch_nb", batch_nb)
+    #     print("=================================\n\n")
+    #     # rays, rgbs = batch["rays"], batch["rgbs"]
+    #     # rays = rays.squeeze()  # (H*W, 3)
+    #     # rgbs = rgbs.squeeze()  # (H*W, 3)
+    #     # pred_image = {}
+    #     # pred_image['rgb_coarse'] = torch.empty((rgbs.shape)).type_as(rgbs)
+    #     # pred_image['opacity_instance_coarse'] = torch.empty((batch["instance_mask"].view(-1).shape)).type_as(rgbs)
+        
+    #     # if self.hparams.N_importance>0:
+    #     #     pred_image['rgb_fine'] = torch.empty((rgbs.shape)).type_as(rgbs)
+    #     #     pred_image['opacity_instance_fine'] = torch.empty((batch["instance_mask"].view(-1).shape)).type_as(rgbs)
+
+    #     # for k,v in batch.items():
+    #     #     # print("After", k,v.shape)
+    #     #     if k =="instance_ids":
+    #     #         print("instance idsss", v)
+    #     #     if k =='obj_id':
+    #     #         print("obj idddddddddddd",v)
+
+    #     # for k,v in batch.items():
+    #     #     print(k,v.shape)
+    #     #     if k=='obj_id':
+    #     #         print("obj_id", v)
+    #     #     if k=='instance_ids':
+    #     #         print("instance_ids", v)
+    #     # print("batch")
+    #     indices = torch.randperm(batch["rgbs"].squeeze().shape[0])
+    #     batch["rgbs"] = batch["rgbs"].squeeze()[indices].float()
+    #     batch["rays"] = batch["rays"].squeeze()[indices]
+    #     batch["instance_mask"] = batch["instance_mask"].view(-1)[indices]
+    #     batch["instance_mask_weight"] = batch["instance_mask_weight"].view(-1)[indices]
+
+    #     # for k,v in batch.items():
+    #     #     print("After", k,v.shape)
+
+    #     extra_info = dict()
+    #     extra_info["is_eval"] = False
+    #     # extra_info["instance_mask"] = batch["instance_mask"]
+    #     extra_info["rays_in_bbox"] = False
+    #     extra_info["frustum_bound_th"] = -1
+    #     extra_info.update(self.code_library(batch))
+
+    #     # for i in range(0, rays.shape[0], self.hparams.batch_size):
+    #     #     # if self.image_encoder:
+    #     #     #     results = self(rays[i:i+self.hparams.batch_size], extra_info)
+    #     #     # else:
+    #     #     results = self(rays[i:i+self.hparams.batch_size], extra_info)
+            
+    #     #     pred_image['rgb_coarse'][i:i+self.hparams.batch_size] = results['rgb_coarse']
+    #     #     pred_image['opacity_instance_coarse'][i:i+self.hparams.batch_size] = results["opacity_instance_coarse"]
+    #     #     if 'rgb_fine' in results:
+    #     #         pred_image['rgb_fine'][i:i+self.hparams.batch_size] = results['rgb_fine']        
+    #     #         pred_image['opacity_instance_fine'][i:i+self.hparams.batch_size] = results["opacity_instance_fine"]
+    #     # loss_sum, loss_dict = self.loss(pred_image, batch)
+        
+    #     results = self(batch["rays"], extra_info)
+    #     loss_sum, loss_dict = self.loss(results, batch)
+    #     # results = self(rays, extra_info)
+    #     with torch.no_grad():
+    #         typ = 'fine' if 'rgb_fine' in results else 'coarse'
+    #         masked_rgb = torch.ones(results[f'rgb_instance_{typ}'].shape).type_as(batch["rgbs"])
+    #         mask = batch["instance_mask"]
+    #         masked_rgb[mask] = batch["rgbs"][mask]
+    #         psnr_ = psnr(results[f'rgb_instance_{typ}'], masked_rgb)
+
+    #     self.log('lr', get_learning_rate(self.optimizer))
+    #     self.log('train/loss', loss_sum)
+    #     for k, v in loss_dict.items():
+    #         self.log(f"train/{k}", v)
+    #     self.log('train/psnr', psnr_, prog_bar=True)
+    #     print("============================\n\n\n")
+
+    #     return loss_sum
+
     def training_step(self, batch, batch_nb):
         print("batch_nb", batch_nb)
         print("=================================\n\n")
-        # rays, rgbs = batch["rays"], batch["rgbs"]
-        # rays = rays.squeeze()  # (H*W, 3)
-        # rgbs = rgbs.squeeze()  # (H*W, 3)
-        # pred_image = {}
-        # pred_image['rgb_coarse'] = torch.empty((rgbs.shape)).type_as(rgbs)
-        # pred_image['opacity_instance_coarse'] = torch.empty((batch["instance_mask"].view(-1).shape)).type_as(rgbs)
-        
-        # if self.hparams.N_importance>0:
-        #     pred_image['rgb_fine'] = torch.empty((rgbs.shape)).type_as(rgbs)
-        #     pred_image['opacity_instance_fine'] = torch.empty((batch["instance_mask"].view(-1).shape)).type_as(rgbs)
 
-        # for k,v in batch.items():
-        #     # print("After", k,v.shape)
-        #     if k =="instance_ids":
-        #         print("instance idsss", v)
-        #     if k =='obj_id':
-        #         print("obj idddddddddddd",v)
+        rays, rgbs, obj_idx = batch['rays'], batch['rgbs'], batch['obj_id']
+        rays = rays.squeeze(0)
+        rgbs = rgbs.squeeze(0)
+        loss_all = []
+        psnr_all = []
 
-        # for k,v in batch.items():
-        #     print(k,v.shape)
-        #     if k=='obj_id':
-        #         print("obj_id", v)
-        #     if k=='instance_ids':
-        #         print("instance_ids", v)
-        # print("batch")
-        indices = torch.randperm(batch["rgbs"].squeeze().shape[0])
-        batch["rgbs"] = batch["rgbs"].squeeze()[indices].float()
-        batch["rays"] = batch["rays"].squeeze()[indices]
+        pred_image = {}
+        pred_image['rgb_coarse'] = torch.empty((rgbs.shape)).type_as(rgbs)
+        pred_image['opacity_instance_coarse'] = torch.empty((batch["instance_mask"].view(-1).shape)).type_as(rgbs)
+
+        indices = torch.randperm(rgbs.shape[0])
+        batch["rgbs"] = rgbs[indices].float()
+        batch["rays"] = rays[indices]
         batch["instance_mask"] = batch["instance_mask"].view(-1)[indices]
         batch["instance_mask_weight"] = batch["instance_mask_weight"].view(-1)[indices]
 
-        # for k,v in batch.items():
-        #     print("After", k,v.shape)
 
         extra_info = dict()
         extra_info["is_eval"] = False
-        # extra_info["instance_mask"] = batch["instance_mask"]
         extra_info["rays_in_bbox"] = False
         extra_info["frustum_bound_th"] = -1
         extra_info.update(self.code_library(batch))
 
-        # for i in range(0, rays.shape[0], self.hparams.batch_size):
-        #     # if self.image_encoder:
-        #     #     results = self(rays[i:i+self.hparams.batch_size], extra_info)
-        #     # else:
-        #     results = self(rays[i:i+self.hparams.batch_size], extra_info)
-            
-        #     pred_image['rgb_coarse'][i:i+self.hparams.batch_size] = results['rgb_coarse']
-        #     pred_image['opacity_instance_coarse'][i:i+self.hparams.batch_size] = results["opacity_instance_coarse"]
-        #     if 'rgb_fine' in results:
-        #         pred_image['rgb_fine'][i:i+self.hparams.batch_size] = results['rgb_fine']        
-        #         pred_image['opacity_instance_fine'][i:i+self.hparams.batch_size] = results["opacity_instance_fine"]
-        # loss_sum, loss_dict = self.loss(pred_image, batch)
-        
-        results = self(batch["rays"], extra_info)
-        loss_sum, loss_dict = self.loss(results, batch)
-        # results = self(rays, extra_info)
-        with torch.no_grad():
-            typ = 'fine' if 'rgb_fine' in results else 'coarse'
-            masked_rgb = torch.ones(results[f'rgb_instance_{typ}'].shape).type_as(batch["rgbs"])
-            mask = batch["instance_mask"]
-            masked_rgb[mask] = batch["rgbs"][mask]
-            psnr_ = psnr(results[f'rgb_instance_{typ}'], masked_rgb)
+        for i in range(0, rays.shape[0], self.hparams.batch_size):
+            results = self(rays[i:i+self.hparams.batch_size], extra_info)
+            loss = self.loss(results, rgbs[i:i+self.hparams.batch_size])
+
+            for optimizer in  self.optimizers():
+                optimizer.zero_grad()
+            self.manual_backward(loss)
+            for optimizer in self.optimizers():
+                optimizer.step()
+
+            with torch.no_grad():
+                typ = 'fine' if 'rgb_fine' in results else 'coarse'
+                psnr_ = psnr(results[f'rgb_{typ}'], rgbs[i:i+self.hparams.batch_size])
+                psnr_all.append(psnr_.item())
+            loss_all.append(loss.item())
 
         self.log('lr', get_learning_rate(self.optimizer))
-        self.log('train/loss', loss_sum)
-        for k, v in loss_dict.items():
-            self.log(f"train/{k}", v)
-        self.log('train/psnr', psnr_, prog_bar=True)
-        print("============================\n\n\n")
-
-        return loss_sum
+        self.log('train/loss', np.mean(loss_all))
+        self.log('train/psnr', np.mean(psnr_all), prog_bar=True)
+        return loss
 
     def validation_step(self, batch, batch_nb):
 
-        # for k,v in batch.items():
-        #     # print("After", k,v.shape)
-        #     if k =='obj_id':
-        #         print("VALLLLLLLLLLLLLLLLLLLL")
-        #         print("obj idd",v)
-        
-        print("================================\n\n\n")
-        print("HEREEEEEEEEEEEEEEEEEEE\n\n\n\n\n")
         for k,v in batch.items():
             if k =='new_img_wh':
                 continue

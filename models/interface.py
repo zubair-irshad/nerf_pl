@@ -20,6 +20,11 @@ clip_0_1 = lambda x: torch.clip(x, 0, 1).detach()
 
 
 class LitModel(pl.LightningModule):
+    def __init__(self):
+        super().__init__()
+        # Important: This property activates manual optimization.
+        self.automatic_optimization = False
+
 
     # Utils to reorganize output values from evaluation steps,
     # i.e., validation and test step.
@@ -44,6 +49,18 @@ class LitModel(pl.LightningModule):
             psnr = -10.0 * torch.log(mse) / np.log(10)
             psnr_list.append(psnr)
         return torch.stack(psnr_list)
+
+    def mse(self, image_pred, image_gt, valid_mask=None, reduction='mean'):
+        value = (image_pred-image_gt)**2
+        if valid_mask is not None:
+            value = value[valid_mask]
+        if reduction == 'mean':
+            return torch.mean(value)
+        return value
+
+    @torch.no_grad()
+    def psnr_legacy(self, image_pred, image_gt, valid_mask=None, reduction='mean'):
+        return -10*torch.log10(self.mse(image_pred, image_gt, valid_mask, reduction))
 
     @torch.no_grad()
     def ssim_each(self, preds, gts):

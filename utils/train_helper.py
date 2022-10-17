@@ -105,7 +105,7 @@ def visualize_val_image_instance(img_wh, batch, results, typ="fine"):
 
 
 def visualize_val_opacity(img_wh, batch, results):
-    W, H = img_wh
+    W, H = img_wh    
     opacity = visualize_depth(results["acc"].unsqueeze(-1).view(H, W),
         vmin=0,
         vmax=1,
@@ -120,3 +120,42 @@ def visualize_val_opacity(img_wh, batch, results):
     grid = make_grid(stack, nrow=1)
     img = T.ToPILImage()(grid)
     return img
+
+def visualize_val_rgb(img_wh, batch, results):
+    W, H = img_wh
+
+    rgbs = batch["target"]
+    img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu()  # (3, H, W)
+    pred_rgb = (results["comp_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
+    stack = torch.stack(
+        [img_gt, pred_rgb]
+    )  # (6, 3, H, W)
+    grid = make_grid(stack, nrow=1)
+    img = T.ToPILImage()(grid)
+    return img
+
+def visualize_val_rgb_opacity(img_wh, batch, results):
+
+    W, H = img_wh
+
+    rgbs = batch["target"]
+    print("rgbs", rgbs.shape)
+    img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu()  # (3, H, W)
+    print("results[comp_rgb]", results["comp_rgb"].shape)
+    pred_rgb = (results["comp_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
+    opacity = visualize_depth(results["acc"].unsqueeze(-1).view(H, W),
+        vmin=0,
+        vmax=1,
+    )  # (3, H, W)
+    target_mask = visualize_depth(batch["instance_mask"].unsqueeze(-1).view(H, W),
+        vmin=0,
+        vmax=1,
+    )# (3, H, W)
+    stack = torch.stack(
+        [img_gt, pred_rgb, target_mask, opacity]
+    )  # (6, 3, H, W)
+    grid = make_grid(stack, nrow=2)
+    img = T.ToPILImage()(grid)
+    return img
+
+

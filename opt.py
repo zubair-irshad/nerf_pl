@@ -7,7 +7,7 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi', 'objectron_multi', 'nocs_bckg', 'llff_nsff', 'co3d', 'pd', 'pdmultiobject'],
+                        choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi', 'objectron_multi', 'nocs_bckg', 'llff_nsff', 'co3d', 'pd', 'pdmultiobject', 'pd_multi'],
                         help='which dataset to train/val')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[640, 480],
                         help='resolution (img_w, img_h) of the image')
@@ -55,6 +55,9 @@ def get_opts():
 
     parser.add_argument('--model_type', type=str, default='geometry',
                         help='which model to use i.e. geometry or render for refnerf')
+    parser.add_argument('--train_opacity_rgb', default=False, action="store_true",
+                        help='whether to train both opacity and rgb for voxel model')
+                
 
     # params for latent codes:
     # 
@@ -77,7 +80,9 @@ def get_opts():
     parser.add_argument('--inst_skips', type=list, default=[2])
     parser.add_argument('--batch_size', type=int, default=1024,
                         help='batch size')
-    parser.add_argument('--chunk', type=int, default=16*2048,
+    # parser.add_argument('--chunk', type=int, default= 16*64,
+    #                     help='chunk size to split the input to avoid OOM')
+    parser.add_argument('--chunk', type=int, default= 16*128,
                         help='chunk size to split the input to avoid OOM')
     parser.add_argument('--num_epochs', type=int, default=80,
                         help='number of training epochs')

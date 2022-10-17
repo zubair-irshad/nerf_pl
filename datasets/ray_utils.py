@@ -2,6 +2,7 @@ import torch
 from kornia import create_meshgrid
 import numpy as np
 import matplotlib.pyplot as plt
+import numba as nb
 
 def homogenise_np(p):
     _1 = np.ones((p.shape[0], 1), dtype=p.dtype)
@@ -11,6 +12,57 @@ def homogenise_np(p):
 def inside_axis_aligned_box(pts, box_min, box_max):
     return torch.all(torch.cat([pts >= box_min, pts <= box_max], dim=1), dim=1)
 
+@nb.jit(nopython=True)
+def bbox_intersection_batch(bounds, rays_o, rays_d):
+    N_rays = rays_o.shape[0]
+    all_hit = np.empty((N_rays))
+    all_near = np.empty((N_rays))
+    all_far = np.empty((N_rays))
+    for idx, (o, d) in enumerate(zip(rays_o, rays_d)):
+        hit, near, far = bbox_intersection(bounds, o, d)
+        # if hit == True:
+        #     print("hit", hit)
+        all_hit[idx] = hit
+        all_near[idx] = near
+        all_far[idx] = far
+    # return (h*w), (h*w, 3), (h*w, 3)
+    return all_hit, all_near, all_far
+
+@nb.jit(nopython=True)
+def bbox_intersection(bounds, orig, dir):
+    # FIXME: currently, it is not working properly if the ray origin is inside the bounding box
+    # https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
+    # handle divide by zero
+    dir[dir == 0] = 1.0e-14
+    invdir = 1 / dir
+    sign = (invdir < 0).astype(np.int64)
+
+    tmin = (bounds[sign[0]][0] - orig[0]) * invdir[0]
+    tmax = (bounds[1 - sign[0]][0] - orig[0]) * invdir[0]
+
+    tymin = (bounds[sign[1]][1] - orig[1]) * invdir[1]
+    tymax = (bounds[1 - sign[1]][1] - orig[1]) * invdir[1]
+
+    if tmin > tymax or tymin > tmax:
+        return False, 0, 0
+    if tymin > tmin:
+        tmin = tymin
+    if tymax < tmax:
+        tmax = tymax
+
+    tzmin = (bounds[sign[2]][2] - orig[2]) * invdir[2]
+    tzmax = (bounds[1 - sign[2]][2] - orig[2]) * invdir[2]
+
+    if tmin > tzmax or tzmin > tmax:
+        return False, 0, 0
+    if tzmin > tmin:
+        tmin = tzmin
+    if tzmax < tmax:
+        tmax = tzmax
+    # additionally, when the orig is inside the box, we return False
+    if tmin < 0 or tmax < 0:
+        return False, 0, 0
+    return True, tmin, tmax
 
 def homogenise_torch(p):
     _1 = torch.ones_like(p[:, [0]])

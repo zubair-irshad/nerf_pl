@@ -9,19 +9,25 @@
 # ------------------------------------------------------------------------------------
 
 import os
+import wandb
 from typing import *
 import numpy as np
+from einops import rearrange, reduce, repeat
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import LambdaLR
+from collections import defaultdict
 
 import models.refnerf.helper as helper
 import models.refnerf.ref_utils as ref_utils
 from models.utils import store_image, write_stats
 from models.interface import LitModel
 from datasets import dataset_dict
+from models.code_library import *
+from utils.train_helper import *
 
 # @gin.configurable()
 class RefNeRFMLP(nn.Module):
@@ -40,6 +46,8 @@ class RefNeRFMLP(nn.Module):
         skip_layer_dir: int = 4,
         perturb: float = 1.0,
         input_ch: int = 3,
+        shape_latent_dim =128,
+        appearance_latent_dim=128,
         input_ch_view: int = 3,
         num_rgb_channels: int = 3,
         num_density_channels: int = 1,
@@ -72,7 +80,8 @@ class RefNeRFMLP(nn.Module):
         self.rgb_activation = nn.Sigmoid()
         self.tint_activation = nn.Sigmoid()
 
-        pos_size = ((max_deg_point - min_deg_point) * 2) * input_ch
+        # pos_size = ((max_deg_point - min_deg_point) * 2) * input_ch
+        pos_size = (((max_deg_point - min_deg_point) * 2) * input_ch) + shape_latent_dim
         view_pos_size = (2**deg_view - 1 + deg_view) * 2
         init_layer = nn.Linear(pos_size, self.netwidth)
         init.xavier_uniform_(init_layer.weight)
@@ -88,13 +97,17 @@ class RefNeRFMLP(nn.Module):
 
         self.pts_linears = nn.ModuleList(pts_linear)
 
+        # views_linear = [
+        #     nn.Linear(self.bottleneck_width + view_pos_size + 1, self.netwidth_viewdirs)
+        # ]
         views_linear = [
-            nn.Linear(self.bottleneck_width + view_pos_size + 1, self.netwidth_viewdirs)
+            nn.Linear(self.bottleneck_width + view_pos_size + 1 + appearance_latent_dim, self.netwidth_viewdirs)
         ]
         for idx in range(self.netdepth_viewdirs - 1):
             if idx % self.skip_layer_dir == 0 and idx > 0:
                 module = nn.Linear(
-                    self.netwidth_viewdirs + self.bottleneck_width + view_pos_size + 1,
+                    # self.netwidth_viewdirs + self.bottleneck_width + view_pos_size + 1,
+                    self.netwidth_viewdirs + self.bottleneck_width + view_pos_size + 1 + appearance_latent_dim,
                     self.netwidth_viewdirs,
                 )
             else:
@@ -125,36 +138,32 @@ class RefNeRFMLP(nn.Module):
     viewdirs: torch.Tensor, [batch, viewdirs]
     """
 
-    def forward(self, samples, viewdirs):
+    def forward(self, samples, viewdirs,embedding_instance_shape=None,
+                embedding_instance_appearance=None):
 
         means, covs = samples
 
         with torch.set_grad_enabled(True):
             means.requires_grad_(True)
-            print("means", means.shape, covs.shape)
             x = helper.integrated_pos_enc(
                 means=means,
                 covs=covs,
                 min_deg=self.min_deg_point,
                 max_deg=self.max_deg_point,
             )
-            print("x after pos enc", x.shape)
             num_samples, feat_dim = x.shape[1:]
             x = x.reshape(-1, feat_dim)
-
+            embedding_instance_shape = repeat(embedding_instance_shape, "n1 c -> (n1 n2) c", n2=num_samples)
+            embedding_instance_appearance = repeat(embedding_instance_appearance, "n1 c -> (n1 n2) c", n2=num_samples)
+            x = torch.cat([x, embedding_instance_shape], -1)
             inputs = x
-            print("inputs x", inputs.shape)
             for idx in range(self.netdepth):
                 x = self.pts_linears[idx](x)
                 x = self.net_activation(x)
                 if idx % self.skip_layer == 0 and idx > 0:
                     x = torch.cat([x, inputs], dim=-1)
 
-            print("x after spatial MLP", x.shape)
             raw_density = self.density_layer(x)
-
-            print("raw_density", raw_density.shape)
-
             raw_density_grad = torch.autograd.grad(
                 outputs=raw_density.sum(), inputs=means, retain_graph=True
             )[0]
@@ -162,19 +171,14 @@ class RefNeRFMLP(nn.Module):
             raw_density_grad = raw_density_grad.reshape(
                 -1, num_samples, self.num_normal_channels
             )
-            print("raw_density_grad", raw_density_grad.shape)
             normals = -ref_utils.l2_normalize(raw_density_grad)
             means.detach()
 
         density = self.density_activation(raw_density + self.density_bias)
         density = density.reshape(-1, num_samples, self.num_density_channels)
-
-        print("density out", density.shape)
-
         grad_pred = self.normal_layer(x).reshape(
             -1, num_samples, self.num_normal_channels
         )
-        print("grad_pred", grad_pred.shape)
         normals_pred = -ref_utils.l2_normalize(grad_pred)
         normals_to_use = normals_pred
 
@@ -198,11 +202,10 @@ class RefNeRFMLP(nn.Module):
             normals_to_use * viewdirs[..., None, :], dim=-1, keepdims=True
         )
 
-        print("dotprod, dir_enc, bottleneck", bottleneck.shape, dir_enc.shape, dotprod.shape)
         x = torch.cat([bottleneck, dir_enc, dotprod], dim=-1)
-        print("x after dir cat", x.shape)
         x = x.reshape(-1, x.shape[-1])
-        print("x after dir", x.shape)
+        #add embedding_instance_appearance here
+        x= torch.cat((x, embedding_instance_appearance), dim=-1)
         inputs = x
         for idx in range(self.netdepth_viewdirs):
             x = self.views_linear[idx](x)
@@ -235,7 +238,7 @@ class RefNeRFMLP(nn.Module):
 class RefNeRF(nn.Module):
     def __init__(
         self,
-        num_samples: int = 128,
+        num_samples: int = 64,
         num_levels: int = 2,
         resample_padding: float = 0.01,
         stop_level_grad: bool = True,
@@ -254,7 +257,9 @@ class RefNeRF(nn.Module):
 
         self.mlp = RefNeRFMLP(self.deg_view)
 
-    def forward(self, rays, randomized, white_bkgd, near, far):
+    def forward(self, rays, randomized, white_bkgd, 
+                near, far, embedding_instance_shape=None,
+                embedding_instance_appearance=None):
 
         ret = []
         for i_level in range(self.num_levels):
@@ -283,7 +288,9 @@ class RefNeRF(nn.Module):
                     resample_padding=self.resample_padding,
                 )
 
-            ray_results = self.mlp(samples, rays["viewdirs"])
+            ray_results = self.mlp(samples, rays["viewdirs"],
+                                    embedding_instance_shape = embedding_instance_shape,
+                                    embedding_instance_appearance = embedding_instance_appearance )
             comp_rgb, distance, acc, weights = helper.volumetric_rendering(
                 ray_results["rgb"],
                 ray_results["density"],
@@ -304,7 +311,7 @@ class RefNeRF(nn.Module):
 
 
 # @gin.configurable()
-class LitRefNeRF(LitModel):
+class LitRefNeRFConditional(LitModel):
     def __init__(
         self,
         hparams,
@@ -328,20 +335,19 @@ class LitRefNeRF(LitModel):
                 setattr(self, name, value)
         self.hparams.update(vars(hparams))
 
-        super(LitRefNeRF, self).__init__()
-        self.model = RefNeRF()
+        super(LitRefNeRFConditional, self).__init__()
 
     def setup(self, stage: Optional[str] = None) -> None:
 
         dataset = dataset_dict[self.hparams.dataset_name]
         
-        if self.hparams.dataset_name == 'pd':
+        if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi':
             kwargs_train = {'root_dir': self.hparams.root_dir,
                       'img_wh': tuple(self.hparams.img_wh),
                       'white_back': self.hparams.white_back,
                       'model_type': 'refnerf'}
             kwargs_val = {'root_dir': self.hparams.root_dir,
-                      'img_wh': tuple((int(self.hparams.img_wh[0]/8),int(self.hparams.img_wh[1]/8))),
+                      'img_wh': tuple(self.hparams.img_wh),
                       'white_back': self.hparams.white_back,
                       'model_type': 'refnerf'}
 
@@ -361,75 +367,151 @@ class LitRefNeRF(LitModel):
             self.far = self.train_dataset.far
             self.white_bkgd = self.train_dataset.white_back
 
+        xyz_min = torch.from_numpy(self.train_dataset.xyz_min)
+        xyz_max = torch.from_numpy(self.train_dataset.xyz_max)
+        self.model = RefNeRF()
+        self.code_library = CodeLibraryRefNeRF(self.hparams)
+        self.models_to_train = [self.model,
+                                self.code_library]
+
     # def setup(self, stage):
     #     self.near = self.trainer.datamodule.near
     #     self.far = self.trainer.datamodule.far
     #     self.white_bkgd = self.trainer.datamodule.white_bkgd
 
     def training_step(self, batch, batch_idx):
-
+        loss_all = []
+        psnr0_all = []
+        psnr1_all = []
+        indices = torch.randperm(batch["target"].shape[1])
         for k,v in batch.items():
-            print(k,v.shape)
-        rendered_results = self.model(
-            batch, self.randomized, self.white_bkgd, self.near, self.far
-        )
+            batch[k] = batch[k][:, indices]
+            if len(batch[k].size()) ==3:
+                batch[k] = rearrange(v, 'b n c -> (b n) c')
+            else:
+                batch[k] = rearrange(v, 'b n -> (b n)')
+            if k =='radii':
+                batch[k] = batch[k].unsqueeze(-1)
 
-        rgb_coarse = rendered_results[0]["comp_rgb"]
-        rgb_fine = rendered_results[1]["comp_rgb"]
-        target = batch["target"]
+        B = batch["rays_o"].shape[0]
+        for i in range(0, B, self.hparams.chunk):
+            extra_info = dict()
+            extra_info.update(self.code_library(batch["instance_ids"][i : i + self.hparams.chunk]))
+            batch_chunk = dict()
+            for k, v in batch.items():
+                batch_chunk[k] = v[i : i + self.hparams.chunk]
 
-        loss0 = helper.img2mse(rgb_coarse, target)
-        loss1 = helper.img2mse(rgb_fine, target)
-        loss = loss1 + loss0 * self.coarse_loss_mult
-
-        if self.compute_normal_metrics:
-            normal_mae = self.compute_normal_mae(rendered_results, batch["normals"])
-            self.log("train/normal_mae", normal_mae, on_step=True)
-
-        if self.orientation_coarse_loss_mult > 0 or self.orientation_loss_mult > 0:
-            orientation_loss = self.orientation_loss(
-                rendered_results, batch["viewdirs"]
+            rendered_results = self.model(
+                batch_chunk, self.randomized, self.white_bkgd, self.near, self.far, **extra_info
             )
-            self.log("train/orientation_loss", orientation_loss, on_step=True)
-            loss += orientation_loss
+            rgb_coarse = rendered_results[0]["comp_rgb"]
+            rgb_fine = rendered_results[1]["comp_rgb"]
+            target = batch_chunk["target"]
 
-        if (
-            self.predicted_normal_coarse_loss_mult > 0
-            or self.predicted_normal_loss_mult > 0
-        ):
-            pred_normal_loss = self.predicted_normal_loss(rendered_results)
-            self.log("train/pred_normal_loss", pred_normal_loss, on_step=True)
-            loss += pred_normal_loss
+            opt = self.optimizers()
+            opt.zero_grad()
+            
+            loss0 = helper.img2mse(rgb_coarse, target)
+            loss1 = helper.img2mse(rgb_fine, target)
+            loss = loss1 + loss0 * self.coarse_loss_mult
 
-        psnr0 = helper.mse2psnr(loss0)
-        psnr1 = helper.mse2psnr(loss1)
+            if self.compute_normal_metrics:
+                normal_mae = self.compute_normal_mae(rendered_results, batch_chunk["normals"])
+                self.log("train/normal_mae", normal_mae, on_step=True)
 
-        self.log("train/psnr1", psnr1, on_step=True, prog_bar=True, logger=True)
-        self.log("train/psnr0", psnr0, on_step=True, prog_bar=True, logger=True)
-        self.log("train/loss", loss, on_step=True)
+            if self.orientation_coarse_loss_mult > 0 or self.orientation_loss_mult > 0:
+                orientation_loss = self.orientation_loss(
+                    rendered_results, batch_chunk["viewdirs"]
+                )
+                self.log("train/orientation_loss", orientation_loss, on_step=True)
+                loss += orientation_loss
 
+            if (
+                self.predicted_normal_coarse_loss_mult > 0
+                or self.predicted_normal_loss_mult > 0
+            ):
+                pred_normal_loss = self.predicted_normal_loss(rendered_results)
+                self.log("train/pred_normal_loss", pred_normal_loss, on_step=True)
+                loss += pred_normal_loss
+
+            self.manual_backward(loss)
+            if self.grad_max_norm > 0:
+                nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_max_norm)
+            opt.step()
+            loss_all.append(loss.item())
+            psnr0 = helper.mse2psnr(loss0)
+            psnr1 = helper.mse2psnr(loss1)
+            psnr0_all.append(psnr0.item())
+            psnr1_all.append(psnr1.item())
+
+        self.log("train/psnr1", np.mean(psnr1_all), on_step=True, prog_bar=True, logger=True)
+        self.log("train/psnr0", np.mean(psnr0_all), on_step=True, prog_bar=True, logger=True)
+        self.log("train/loss", np.mean(loss_all), on_step=True, prog_bar=True, logger=True)
         return loss
 
-    def render_rays(self, batch, batch_idx):
-        ret = {}
-        rendered_results = self.model(
-            batch, False, self.white_bkgd, self.near, self.far
-        )
-        rgb_fine = rendered_results[1]["comp_rgb"]
-        target = batch["target"]
-        ret["target"] = target
-        ret["rgb"] = rgb_fine
+    def training_epoch_end(self, training_step_outputs):
+        sch = self.lr_schedulers()
+        sch.step()
+
+    def render_rays(self, batch, extra=None):
+        B = batch["rays_o"].shape[0]
+        ret = defaultdict(list)
+        for i in range(0, B, self.hparams.chunk):
+            batch_chunk = dict()
+            for k, v in batch.items():
+                if k =='radii':
+                    batch_chunk[k] = v[:, i : i + self.hparams.chunk]
+                else:
+                    batch_chunk[k] = v[i : i + self.hparams.chunk]
+            extra_chunk = dict()
+            for k, v in extra.items():
+                extra_chunk[k] = v[i : i + self.hparams.chunk]                    
+            rendered_results_chunk = self.model(
+                batch_chunk, False, self.white_bkgd, self.near, self.far, **extra_chunk
+            )
+            #here 1 denotes fine
+            for k, v in rendered_results_chunk[1].items():
+                ret[k] += [v]
+        for k, v in ret.items():
+            ret[k] = torch.cat(v, 0)
+        
+        psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
+        self.log("val/psnr", psnr_.item(), on_epoch=True, sync_dist=True)
         return ret
+
+    # def render_rays(self, batch, batch_idx):
+    #     ret = {}
+    #     rendered_results = self.model(
+    #         batch, False, self.white_bkgd, self.near, self.far
+    #     )
+    #     rgb_fine = rendered_results[1]["comp_rgb"]
+    #     target = batch["target"]
+    #     ret["target"] = target
+    #     ret["rgb"] = rgb_fine
+    #     return ret
+
+    def on_validation_start(self):
+        self.random_batch = np.random.randint(5, size=1)[0]
 
     def validation_step(self, batch, batch_idx):
         for k,v in batch.items():
             batch[k] = v.squeeze()
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
-
         for k,v in batch.items():
             print(k,v.shape)
-        return self.render_rays(batch, batch_idx)
+        W,H = self.hparams.img_wh
+        extra_info = dict()
+        extra_info.update(self.code_library(batch["instance_ids"]))
+        ret = self.render_rays(batch, extra_info)
+        print("random_batch", self.random_batch)
+        if batch_idx == self.random_batch:
+            grid_img = visualize_val_rgb(
+                (W,H), batch, ret
+            )
+            self.logger.experiment.log({
+                "val/GT_pred rgb": wandb.Image(grid_img)
+            })
 
     def test_step(self, batch, batch_idx):
         for k,v in batch.items():
@@ -437,48 +519,54 @@ class LitRefNeRF(LitModel):
         return self.render_rays(batch, batch_idx)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(
-            params=self.parameters(), lr=self.lr_init, betas=(0.9, 0.999)
-        )
+        parameters = helper.get_parameters(self.models_to_train)
+        self.optimizer = torch.optim.Adam(params=parameters, lr=self.lr_init, betas=(0.9, 0.999))
+        scheduler = LambdaLR(self.optimizer, lambda epoch: (1-epoch/(self.hparams.num_epochs))**self.hparams.poly_exp)
+        return [self.optimizer], [scheduler]
 
-    def optimizer_step(
-        self,
-        epoch,
-        batch_idx,
-        optimizer,
-        optimizer_idx,
-        optimizer_closure,
-        on_tpu,
-        using_native_amp,
-        using_lbfgs,
-    ):
-        step = self.trainer.global_step
-        max_steps = self.hparams.run_max_steps
+    # def optimizer_step(
+    #     self,
+    #     epoch,
+    #     batch_idx,
+    #     optimizer,
+    #     optimizer_idx,
+    #     optimizer_closure,
+    #     on_tpu,
+    #     using_native_amp,
+    #     using_lbfgs,
+    # ):
+    #     step = self.trainer.global_step
+    #     max_steps = self.hparams.run_max_steps
 
-        if self.lr_delay_steps > 0:
-            delay_rate = self.lr_delay_mult + (1 - self.lr_delay_mult) * np.sin(
-                0.5 * np.pi * np.clip(step / self.lr_delay_steps, 0, 1)
-            )
-        else:
-            delay_rate = 1.0
+    #     if self.lr_delay_steps > 0:
+    #         delay_rate = self.lr_delay_mult + (1 - self.lr_delay_mult) * np.sin(
+    #             0.5 * np.pi * np.clip(step / self.lr_delay_steps, 0, 1)
+    #         )
+    #     else:
+    #         delay_rate = 1.0
 
-        t = np.clip(step / max_steps, 0, 1)
-        scaled_lr = np.exp(np.log(self.lr_init) * (1 - t) + np.log(self.lr_final) * t)
-        new_lr = delay_rate * scaled_lr
+    #     t = np.clip(step / max_steps, 0, 1)
+    #     scaled_lr = np.exp(np.log(self.lr_init) * (1 - t) + np.log(self.lr_final) * t)
+    #     new_lr = delay_rate * scaled_lr
 
-        for pg in optimizer.param_groups:
-            pg["lr"] = new_lr
+    #     for pg in optimizer.param_groups:
+    #         pg["lr"] = new_lr
 
-        if self.grad_max_norm > 0:
-            nn.utils.clip_grad_norm_(self.parameters(), self.grad_max_norm)
+    #     if self.grad_max_norm > 0:
+    #         nn.utils.clip_grad_norm_(self.parameters(), self.grad_max_norm)
 
-        optimizer.step(closure=optimizer_closure)
+    #     optimizer.step(closure=optimizer_closure)
 
     def train_dataloader(self):
+        # return DataLoader(self.train_dataset,
+        #                   shuffle=True,
+        #                   num_workers=4,
+        #                   batch_size=self.hparams.batch_size,
+        #                   pin_memory=True)
         return DataLoader(self.train_dataset,
-                          shuffle=True,
+                          shuffle=False,
                           num_workers=4,
-                          batch_size=self.hparams.batch_size,
+                          batch_size=1,
                           pin_memory=True)
 
     def val_dataloader(self):
@@ -495,33 +583,21 @@ class LitRefNeRF(LitModel):
                         batch_size=self.hparams.batch_size,
                         pin_memory=True)
 
-    def validation_epoch_end(self, outputs):
-        val_image_sizes = self.val_dataset.val_image_sizes
-        rgbs = self.alter_gather_cat(outputs, "rgb", val_image_sizes)
-        targets = self.alter_gather_cat(outputs, "target", val_image_sizes)
-        psnr_mean = self.psnr_each(rgbs, targets).mean()
-        ssim_mean = self.ssim_each(rgbs, targets).mean()
-        lpips_mean = self.lpips_each(rgbs, targets).mean()
-        self.log("val/psnr", psnr_mean.item(), on_epoch=True, sync_dist=True)
-        self.log("val/ssim", ssim_mean.item(), on_epoch=True, sync_dist=True)
-        self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
+    # def validation_epoch_end(self, outputs):
+    #     val_image_sizes = self.val_dataset.val_image_sizes
+    #     rgbs = self.alter_gather_cat(outputs, "rgb", val_image_sizes)
+    #     targets = self.alter_gather_cat(outputs, "target", val_image_sizes)
+    #     psnr_mean = self.psnr_each(rgbs, targets).mean()
+    #     ssim_mean = self.ssim_each(rgbs, targets).mean()
+    #     lpips_mean = self.lpips_each(rgbs, targets).mean()
+    #     self.log("val/psnr", psnr_mean.item(), on_epoch=True, sync_dist=True)
+    #     self.log("val/ssim", ssim_mean.item(), on_epoch=True, sync_dist=True)
+    #     self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
 
     def test_epoch_end(self, outputs):
         all_image_sizes = self.test_dataset.image_sizes
-        # dmodule = self.trainer.datamodule
-        # all_image_sizes = (
-        #     dmodule.all_image_sizes
-        #     if not dmodule.eval_test_only
-        #     else dmodule.test_image_sizes
-        # )
         rgbs = self.alter_gather_cat(outputs, "rgb", all_image_sizes)
         targets = self.alter_gather_cat(outputs, "target", all_image_sizes)
-        # psnr = self.psnr(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
-        # ssim = self.ssim(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
-        # lpips = self.lpips(
-        #     rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test
-        # )
-
         psnr = self.psnr(rgbs, targets, None, None, None)
         ssim = self.ssim(rgbs, targets, None, None, None)
         lpips = self.lpips(

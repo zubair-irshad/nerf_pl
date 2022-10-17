@@ -3,6 +3,52 @@ from torch import nn
 import sys
 sys.path.append("./")
 from opt import get_opts
+import torch.nn.init as init
+
+class CodeLibraryVoxel(nn.Module):
+    """
+    Store various codes.
+    """
+    def __init__(self, hparams):
+        super(CodeLibraryVoxel, self).__init__()
+
+        self.embedding_instance = torch.nn.Embedding(
+            hparams.N_max_objs, 
+            hparams.N_obj_code_length
+        )
+    def forward(self, instance_ids):
+        ret_dict = dict()
+        ret_dict["embedding_instance"] = self.embedding_instance(instance_ids
+        ).unsqueeze(0)
+
+        return ret_dict
+
+class CodeLibraryRefNeRF(nn.Module):
+    """
+    Store various codes.
+    """
+    def __init__(self, hparams):
+        super(CodeLibraryRefNeRF, self).__init__()
+
+        self.embedding_instance_shape = torch.nn.Embedding(
+            hparams.N_max_objs, 
+            hparams.N_obj_code_length
+        )
+        self.embedding_instance_appearance = torch.nn.Embedding(
+            hparams.N_max_objs, 
+            hparams.N_obj_code_length
+        )
+        init.xavier_uniform_(self.embedding_instance_shape.weight)
+        init.xavier_uniform_(self.embedding_instance_appearance.weight)
+        
+    def forward(self, instance_ids):
+        ret_dict = dict()
+        ret_dict["embedding_instance_shape"] = self.embedding_instance_shape(instance_ids
+        )
+        ret_dict["embedding_instance_appearance"] = self.embedding_instance_appearance(instance_ids
+        )
+
+        return ret_dict
 
 class CodeLibrary(nn.Module):
     """

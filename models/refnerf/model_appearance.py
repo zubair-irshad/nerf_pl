@@ -18,6 +18,7 @@ import torch.nn.init as init
 from torch.utils.data import DataLoader
 
 import models.refnerf.helper as helper
+from models.refnerf.model_voxels import GeneratorMLP
 import models.refnerf.ref_utils as ref_utils
 from models.utils import store_image, write_stats
 from models.interface import LitModel
@@ -28,6 +29,9 @@ class RefNeRFMLP(nn.Module):
     def __init__(
         self,
         deg_view,
+        xyz_min, 
+        xyz_max,
+        voxel_ckpt_path,
         min_deg_point: int = 0,
         max_deg_point: int = 16,
         netdepth: int = 8,
@@ -63,6 +67,10 @@ class RefNeRFMLP(nn.Module):
                 setattr(self, name, value)
 
         super(RefNeRFMLP, self).__init__()
+
+        self.voxel_gen = GeneratorMLP(xyz_min = xyz_min, xyz_max = xyz_max)
+        helper.load_ckpt(self.voxel_gen, voxel_ckpt_path, model_name='nerf_coarse')
+        self.voxel_gen.eval()
 
         self.dir_enc_fn = ref_utils.generate_ide_fn(self.deg_view)
 
@@ -150,7 +158,6 @@ class RefNeRFMLP(nn.Module):
                 if idx % self.skip_layer == 0 and idx > 0:
                     x = torch.cat([x, inputs], dim=-1)
 
-            print("x after spatial MLP", x.shape)
             raw_density = self.density_layer(x)
 
             print("raw_density", raw_density.shape)
@@ -198,11 +205,8 @@ class RefNeRFMLP(nn.Module):
             normals_to_use * viewdirs[..., None, :], dim=-1, keepdims=True
         )
 
-        print("dotprod, dir_enc, bottleneck", bottleneck.shape, dir_enc.shape, dotprod.shape)
         x = torch.cat([bottleneck, dir_enc, dotprod], dim=-1)
-        print("x after dir cat", x.shape)
         x = x.reshape(-1, x.shape[-1])
-        print("x after dir", x.shape)
         inputs = x
         for idx in range(self.netdepth_viewdirs):
             x = self.views_linear[idx](x)
@@ -235,6 +239,8 @@ class RefNeRFMLP(nn.Module):
 class RefNeRF(nn.Module):
     def __init__(
         self,
+        xyz_min,
+        xyz_max,
         num_samples: int = 128,
         num_levels: int = 2,
         resample_padding: float = 0.01,
@@ -252,7 +258,7 @@ class RefNeRF(nn.Module):
 
         super(RefNeRF, self).__init__()
 
-        self.mlp = RefNeRFMLP(self.deg_view)
+        self.mlp = RefNeRFMLP(self.deg_view, xyz_min = xyz_min, xyz_max = xyz_max)
 
     def forward(self, rays, randomized, white_bkgd, near, far):
 
@@ -329,14 +335,14 @@ class LitRefNeRF(LitModel):
         self.hparams.update(vars(hparams))
 
         super(LitRefNeRF, self).__init__()
-        self.model = RefNeRF()
 
     def setup(self, stage: Optional[str] = None) -> None:
 
         dataset = dataset_dict[self.hparams.dataset_name]
         
         if self.hparams.dataset_name == 'pd':
-            kwargs_train = {'root_dir': self.hparams.root_dir,
+            kwargs_train = {'batch_size': 1,
+                      'root_dir': self.hparams.root_dir,
                       'img_wh': tuple(self.hparams.img_wh),
                       'white_back': self.hparams.white_back,
                       'model_type': 'refnerf'}
@@ -360,16 +366,16 @@ class LitRefNeRF(LitModel):
             self.near = self.train_dataset.near
             self.far = self.train_dataset.far
             self.white_bkgd = self.train_dataset.white_back
-
+        
+        xyz_min = self.train_dataset.xyz_min
+        xyz_max = self.train_dataset.xyz_max
+        self.model = RefNeRF(xyz_min = xyz_min, xyz_max = xyz_max)
     # def setup(self, stage):
     #     self.near = self.trainer.datamodule.near
     #     self.far = self.trainer.datamodule.far
     #     self.white_bkgd = self.trainer.datamodule.white_bkgd
 
     def training_step(self, batch, batch_idx):
-
-        for k,v in batch.items():
-            print(k,v.shape)
         rendered_results = self.model(
             batch, self.randomized, self.white_bkgd, self.near, self.far
         )
@@ -426,9 +432,6 @@ class LitRefNeRF(LitModel):
             batch[k] = v.squeeze()
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
-
-        for k,v in batch.items():
-            print(k,v.shape)
         return self.render_rays(batch, batch_idx)
 
     def test_step(self, batch, batch_idx):

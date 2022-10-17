@@ -13,7 +13,6 @@ import itertools
 import numpy as np
 import torch
 
-
 def img2mse(x, y):
     return torch.mean((x - y) ** 2)
 
@@ -42,6 +41,47 @@ def linear_to_srgb(linear, eps=1e-10):
     ) / 200
     return torch.where(linear <= 0.0031308, srgb0, srgb1)
 
+
+def cast_rays_vanilla(t_vals, origins, directions):
+    return origins[..., None, :] + t_vals[..., None] * directions[..., None, :]
+
+
+def sample_along_rays_vanilla(
+    rays_o,
+    rays_d,
+    num_samples,
+    near,
+    far,
+    randomized,
+    lindisp,
+):
+    bsz = rays_o.shape[0]
+    t_vals = torch.linspace(0.0, 1.0, num_samples + 1, device=rays_o.device)
+    if lindisp:
+        t_vals = 1.0 / (1.0 / near * (1.0 - t_vals) + 1.0 / far * t_vals)
+    else:
+        t_vals = near * (1.0 - t_vals) + far * t_vals
+
+    if randomized:
+        mids = 0.5 * (t_vals[..., 1:] + t_vals[..., :-1])
+        upper = torch.cat([mids, t_vals[..., -1:]], -1)
+        lower = torch.cat([t_vals[..., :1], mids], -1)
+        t_rand = torch.rand((bsz, num_samples + 1), device=rays_o.device)
+        t_vals = lower + (upper - lower) * t_rand
+    else:
+        t_vals = torch.broadcast_to(t_vals, (bsz, num_samples + 1))
+
+    coords = cast_rays_vanilla(t_vals, rays_o, rays_d)
+    return t_vals, coords
+
+def sample_pdf(bins, weights, origins, directions, t_vals, num_samples, randomized):
+
+    t_samples = sorted_piecewise_constant_pdf(
+        bins, weights, num_samples, randomized
+    ).detach()
+    t_vals = torch.sort(torch.cat([t_vals, t_samples], dim=-1), dim=-1).values
+    coords = cast_rays_vanilla(t_vals, origins, directions)
+    return t_vals, coords
 
 def sample_along_rays(
     rays_o,
@@ -168,29 +208,13 @@ def integrated_pos_enc(means, covs, min_deg, max_deg):
     )[0]
 
 
-def volumetric_rendering_opacity(density, t_vals):
+def volumetric_rendering_opacity(opacity, t_vals):
 
-    eps = 1e-10
-
-    dists = torch.cat(
-        [
-            t_vals[..., 1:] - t_vals[..., :-1],
-            torch.ones(t_vals[..., :1].shape, device=t_vals.device) * 1e10,
-        ],
-        dim=-1,
-    )    
-    alpha = 1.0 - torch.exp(-density[..., 0] * dists)
-    accum_prod = torch.cat(
-        [
-            torch.ones_like(alpha[..., :1]),
-            torch.cumprod(1.0 - alpha[..., :-1] + eps, dim=-1),
-        ],
-        dim=-1,
-    )
-
-    weights = alpha * accum_prod
-    acc = weights.sum(dim=-1)
-    return acc, weights
+    opacity = opacity.squeeze(-1)
+    weights = calculate_blend_weights(t_vals, opacity)
+    weights = weights[:, :-1]
+    output_alpha = weights.sum(-1)
+    return output_alpha, weights
 
 def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd):
     t_mids = 0.5 * (t_vals[..., :-1] + t_vals[..., 1:])
@@ -215,6 +239,105 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd):
         comp_rgb = comp_rgb + (1.0 - acc[..., None])
 
     return comp_rgb, distance, acc, weights
+
+
+def calculate_blend_weights(t_values: torch.Tensor,
+                            opacity: torch.Tensor) -> torch.Tensor:
+    """Calculates blend weights for a ray.
+
+    Args:
+        t_values (torch.Tensor): A (num_rays,num_samples) tensor of t values
+        opacity (torch.Tensor): A (num_rays,num_samples) tensor of opacity
+                                opacity values for the ray positions.
+
+    Returns:
+        torch.Tensor: A (num_rays,num_samples) blend weights tensor
+    """
+    _, num_samples = t_values.shape
+    deltas = t_values[:, 1:] - t_values[:, :-1]
+    max_dist = torch.full_like(deltas[:, :1], 1e10)
+    deltas = torch.cat([deltas, max_dist], dim=-1)
+
+    alpha = 1 - torch.exp(-(opacity * deltas))
+    ones = torch.ones_like(alpha)
+
+    trans = torch.minimum(ones, 1 - alpha + 1e-10)
+    trans, _ = trans.split([num_samples - 1, 1], dim=-1)
+    trans = torch.cat([torch.ones_like(trans[:, :1]), trans], dim=-1)
+    trans = torch.cumprod(trans, -1)
+    weights = alpha * trans
+    return weights
+
+def volumetric_rendering_rgb(color, opacity, t_vals):
+
+    opacity = opacity.squeeze(-1)
+    weights = calculate_blend_weights(t_vals, opacity)
+
+    output_color = weights.unsqueeze(-1) * color
+    output_color = output_color.sum(-2)
+
+    weights = weights[:, :-1]
+    output_alpha = weights.sum(-1)
+
+    return output_color, output_alpha
+    
+# def volumetric_rendering_rgb(rgb, density, t_vals, dirs, white_bkgd):
+
+#     eps = 1e-10
+
+#     dists = torch.cat(
+#         [
+#             t_vals[..., 1:] - t_vals[..., :-1],
+#             torch.ones(t_vals[..., :1].shape, device=t_vals.device) * 1e10,
+#         ],
+#         dim=-1,
+#     )
+#     dists = dists * torch.norm(dirs[..., None, :], dim=-1)
+#     alpha = 1.0 - torch.exp(-density[..., 0] * dists)
+#     accum_prod = torch.cat(
+#         [
+#             torch.ones_like(alpha[..., :1]),
+#             torch.cumprod(1.0 - alpha[..., :-1] + eps, dim=-1),
+#         ],
+#         dim=-1,
+#     )
+
+#     weights = alpha * accum_prod
+
+#     comp_rgb = (weights[..., None] * rgb).sum(dim=-2)
+#     depth = (weights * t_vals).sum(dim=-1)
+#     acc = weights.sum(dim=-1)
+#     inv_eps = 1 / eps
+
+#     if white_bkgd:
+#         comp_rgb = comp_rgb + (1.0 - acc[..., None])
+
+#     return comp_rgb, acc, weights
+
+# def volumetric_rendering_rgb(rgb, density, t_vals, white_bkgd):
+
+#     eps = 1e-10
+
+#     dists = torch.cat(
+#         [
+#             t_vals[..., 1:] - t_vals[..., :-1],
+#             torch.ones(t_vals[..., :1].shape, device=t_vals.device) * 1e10,
+#         ],
+#         dim=-1,
+#     )    
+#     alpha = 1.0 - torch.exp(-density[..., 0] * dists)
+
+#     T = torch.cumprod(1.0 - alpha + eps, dim=-1)
+#     accum_prod = torch.cat([torch.ones_like(T[..., -1:]), T[..., :-1]], dim=-1)
+#     weights = alpha * accum_prod
+
+#     comp_rgb = (weights[..., None] * rgb).sum(dim=-2)
+#     acc = weights.sum(dim=-1)
+
+#     if white_bkgd:
+#         comp_rgb = comp_rgb + (1.0 - acc[..., None])
+
+#     return comp_rgb, acc, weights
 
 
 def pos_enc(x, min_deg, max_deg, append_identity):
@@ -437,3 +560,37 @@ def generate_basis(base_shape, angular_tesselation, remove_symmetries=True, eps=
 
     basis = verts[:, ::-1]
     return basis
+
+def load_model(ckpt_path):
+    system = LitVoxelGenerator.load_from_checkpoint(ckpt_path)
+    return system.models, system.code_library
+
+def extract_model_state_dict(ckpt_path, model_name='model', prefixes_to_ignore=[]):
+    checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
+    checkpoint_ = {}
+    if 'state_dict' in checkpoint: # if it's a pytorch-lightning checkpoint
+        checkpoint = checkpoint['state_dict']
+    for k, v in checkpoint.items():
+        print(k)
+        if not k.startswith(model_name):
+            continue
+        k = k[len(model_name)+1:]
+        for prefix in prefixes_to_ignore:
+            if k.startswith(prefix):
+                print('ignore', k)
+                break
+        else:
+            checkpoint_[k] = v
+    return checkpoint_
+
+def load_ckpt(model, ckpt_path, model_name='model', prefixes_to_ignore=[]):
+    if not ckpt_path:
+        return
+    model_dict = model.state_dict()
+    checkpoint_ = extract_model_state_dict(ckpt_path, model_name, prefixes_to_ignore)
+    model_dict.update(checkpoint_)
+    model.load_state_dict(model_dict)
+
+def get_learning_rate(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']

@@ -7,13 +7,19 @@ from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.loggers import WandbLogger
 wandb_logger = WandbLogger()
+
+#baselines models
 from models.nerfplusplus.model import LitNeRFPP
-# from models.refnerf.model import LitRefNeRF
-from models.refnerf.model_disentagled import LitRefNeRF
 # from models.mipnerf360.model import LitMipNeRF360
+from models.refnerf.model import LitRefNeRF
+
+#Symmetric Voxel based pretraining + RefNeRF autoDecoder
+# from models.refnerf.model_voxels import LitVoxelGenerator
+from models.refnerf.model_conditional import LitRefNeRFConditional
+
 
 def main(hparams):
-    system = LitRefNeRF(hparams=hparams)
+    system = LitRefNeRFConditional(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
@@ -28,6 +34,8 @@ def main(hparams):
         save_top_k=5,
         mode="max",
         save_last=True,
+        # every_n_epochs=10,
+        every_n_epochs=50,
     )
 
     pbar = TQDMProgressBar(refresh_rate=1)
@@ -43,8 +51,9 @@ def main(hparams):
                     devices=hparams.num_gpus,
                     num_sanity_val_steps=1,
                     benchmark=True,
+                    limit_val_batches=5,
                     profiler="simple" if hparams.num_gpus==1 else None,
-                    strategy=DDPPlugin(find_unused_parameters=False) if hparams.num_gpus>1 else None)
+                    strategy=DDPPlugin(find_unused_parameters=True) if hparams.num_gpus>1 else None)
 
     if hparams.run_eval:
         ckpt_path = (

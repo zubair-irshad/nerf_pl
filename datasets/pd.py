@@ -122,7 +122,7 @@ class PDDataset(Dataset):
                 self.all_rays_d+=[rays_d]
                 self.all_rays += [torch.cat([rays_o, view_dirs, 
                                 self.near*torch.ones_like(rays_o[:, :1]),
-                                self.far*torch.ones_like(rays_o[:, :1])],
+                                self.far*torch.ones_like(rays_d[:, :1])],
                                 1)] # (h*w, 8)
                 self.all_rgbs += [img]
                 self.all_instance_masks +=[instance_mask]
@@ -131,6 +131,21 @@ class PDDataset(Dataset):
                 self.all_radii +=[radii.unsqueeze(-1)]
 
             self.all_rays = torch.cat(self.all_rays, 0) # (len(self.meta['frames])*h*w, 3)
+
+            print("self.allrays", self.all_rays.shape)
+            #Get near far for voxel training normalization
+            rays_o = self.all_rays[:, :3]
+            viewdirs = self.all_rays[:, 3:6]
+            near = self.all_rays[:, 6]
+            far = self.all_rays[:, 7]
+            print("rays_o, rays_d", rays_o.shape, viewdirs.shape)
+            pts_nf = torch.stack([rays_o + viewdirs * self.near, rays_o + viewdirs * self.far], 1
+            )
+            self.xyz_min = torch.amin(pts_nf, axis=(0, 1))
+            self.xyz_max = torch.amax(pts_nf, axis=(0, 1))
+
+            print("self.xyz_min, self.xyz_max", self.xyz_min, self.xyz_max)
+
             self.all_rgbs = torch.cat(self.all_rgbs, 0)
             self.all_rays_d = torch.cat(self.all_rays_d, 0)
             self.all_radii = torch.cat(self.all_radii, 0)
@@ -223,7 +238,7 @@ class PDDataset(Dataset):
             instance_ids = torch.ones_like(instance_mask).long() * 1
             rays = torch.cat([rays_o, view_dirs, 
                                 self.near*torch.ones_like(rays_o[:, :1]),
-                                self.far*torch.ones_like(rays_o[:, :1])],
+                                self.far*torch.ones_like(rays_d[:, :1])],
                                 1) # (H*W, 8)
 
             if self.model_type == "Vanilla":
@@ -238,7 +253,7 @@ class PDDataset(Dataset):
             else:
                 sample = {}
                 sample["rays_o"] = rays[:,:3]
-                sample["rays_d"] = view_dirs
+                sample["rays_d"] = rays_d
                 sample["viewdirs"] = rays[:,3:6]
                 sample["target"] = img
                 sample["radii"] = radii
