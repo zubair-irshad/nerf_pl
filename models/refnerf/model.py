@@ -16,12 +16,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch.utils.data import DataLoader
+import torch.distributed as dist
+from collections import defaultdict
 
 import models.refnerf.helper as helper
 import models.refnerf.ref_utils as ref_utils
 from models.utils import store_image, write_stats
 from models.interface import LitModel
 from datasets import dataset_dict
+from utils.train_helper import *
+import wandb
 
 # @gin.configurable()
 class RefNeRFMLP(nn.Module):
@@ -325,7 +329,7 @@ class LitRefNeRF(LitModel):
                       'white_back': self.hparams.white_back,
                       'model_type': 'refnerf'}
             kwargs_val = {'root_dir': self.hparams.root_dir,
-                      'img_wh': tuple((int(self.hparams.img_wh[0]/8),int(self.hparams.img_wh[1]/8))),
+                      'img_wh': tuple(self.hparams.img_wh),
                       'white_back': self.hparams.white_back,
                       'model_type': 'refnerf'}
 
@@ -392,14 +396,26 @@ class LitRefNeRF(LitModel):
         return loss
 
     def render_rays(self, batch, batch_idx):
-        ret = {}
-        rendered_results = self.model(
-            batch, False, self.white_bkgd, self.near, self.far
-        )
-        rgb_fine = rendered_results[1]["comp_rgb"]
-        target = batch["target"]
-        ret["target"] = target
-        ret["rgb"] = rgb_fine
+        B = batch["rays_o"].shape[0]
+        ret = defaultdict(list)
+        for i in range(0, B, self.hparams.chunk):
+            batch_chunk = dict()
+            for k, v in batch.items():
+                if k =='radii':
+                    batch_chunk[k] = v[:, i : i + self.hparams.chunk]
+                else:
+                    batch_chunk[k] = v[i : i + self.hparams.chunk]                
+            rendered_results_chunk = self.model(
+                batch_chunk, False, self.white_bkgd, self.near, self.far
+            )
+            #here 1 denotes fine
+            for k, v in rendered_results_chunk[1].items():
+                ret[k] += [v]
+        for k, v in ret.items():
+            ret[k] = torch.cat(v, 0)
+        
+        psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
+        self.log("val/psnr", psnr_.item(), on_epoch=True, sync_dist=True)
         return ret
 
     def validation_step(self, batch, batch_idx):
@@ -407,7 +423,19 @@ class LitRefNeRF(LitModel):
             batch[k] = v.squeeze()
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
-        return self.render_rays(batch, batch_idx)
+
+        W,H = self.hparams.img_wh
+        ret = self.render_rays(batch)
+        rank = dist.get_rank()
+        if rank==0:
+
+            grid_img = visualize_val_rgb_opacity(
+                (W,H), batch, ret
+            )
+            self.logger.experiment.log({
+                "val/GT_pred rgb": wandb.Image(grid_img)
+            })
+        # return self.render_rays(batch, batch_idx)
 
     def test_step(self, batch, batch_idx):
         for k,v in batch.items():
@@ -473,16 +501,16 @@ class LitRefNeRF(LitModel):
                         batch_size=self.hparams.batch_size,
                         pin_memory=True)
 
-    def validation_epoch_end(self, outputs):
-        val_image_sizes = self.val_dataset.val_image_sizes
-        rgbs = self.alter_gather_cat(outputs, "rgb", val_image_sizes)
-        targets = self.alter_gather_cat(outputs, "target", val_image_sizes)
-        psnr_mean = self.psnr_each(rgbs, targets).mean()
-        ssim_mean = self.ssim_each(rgbs, targets).mean()
-        lpips_mean = self.lpips_each(rgbs, targets).mean()
-        self.log("val/psnr", psnr_mean.item(), on_epoch=True, sync_dist=True)
-        self.log("val/ssim", ssim_mean.item(), on_epoch=True, sync_dist=True)
-        self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
+    # def validation_epoch_end(self, outputs):
+    #     val_image_sizes = self.val_dataset.val_image_sizes
+    #     rgbs = self.alter_gather_cat(outputs, "rgb", val_image_sizes)
+    #     targets = self.alter_gather_cat(outputs, "target", val_image_sizes)
+    #     psnr_mean = self.psnr_each(rgbs, targets).mean()
+    #     ssim_mean = self.ssim_each(rgbs, targets).mean()
+    #     lpips_mean = self.lpips_each(rgbs, targets).mean()
+    #     self.log("val/psnr", psnr_mean.item(), on_epoch=True, sync_dist=True)
+    #     self.log("val/ssim", ssim_mean.item(), on_epoch=True, sync_dist=True)
+    #     self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
 
     def test_epoch_end(self, outputs):
         all_image_sizes = self.test_dataset.image_sizes
