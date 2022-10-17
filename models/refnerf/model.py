@@ -395,7 +395,7 @@ class LitRefNeRF(LitModel):
 
         return loss
 
-    def render_rays(self, batch, batch_idx):
+    def render_rays(self, batch):
         B = batch["rays_o"].shape[0]
         ret = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
@@ -428,7 +428,6 @@ class LitRefNeRF(LitModel):
         ret = self.render_rays(batch)
         rank = dist.get_rank()
         if rank==0:
-
             grid_img = visualize_val_rgb_opacity(
                 (W,H), batch, ret
             )
