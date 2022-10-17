@@ -20,6 +20,7 @@ import torch.nn.init as init
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LambdaLR
 from collections import defaultdict
+import torch.distributed as dist
 
 import models.refnerf.helper as helper
 import models.refnerf.ref_utils as ref_utils
@@ -505,13 +506,15 @@ class LitRefNeRFConditional(LitModel):
         extra_info.update(self.code_library(batch["instance_ids"]))
         ret = self.render_rays(batch, extra_info)
         print("random_batch", self.random_batch)
-        if batch_idx == self.random_batch:
-            grid_img = visualize_val_rgb(
-                (W,H), batch, ret
-            )
-            self.logger.experiment.log({
-                "val/GT_pred rgb": wandb.Image(grid_img)
-            })
+        rank = dist.get_rank()
+        if rank==0:
+            if batch_idx == self.random_batch:
+                grid_img = visualize_val_rgb(
+                    (W,H), batch, ret
+                )
+                self.logger.experiment.log({
+                    "val/GT_pred rgb": wandb.Image(grid_img)
+                })
 
     def test_step(self, batch, batch_idx):
         for k,v in batch.items():
