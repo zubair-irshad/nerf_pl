@@ -18,6 +18,7 @@ import torch.nn.init as init
 from torch.utils.data import DataLoader
 import torch.distributed as dist
 from collections import defaultdict
+import imageio
 
 import models.refnerf.helper as helper
 import models.refnerf.ref_utils as ref_utils
@@ -418,6 +419,31 @@ class LitRefNeRF(LitModel):
         self.log("val/psnr", psnr_.item(), on_epoch=True, sync_dist=True)
         return ret
 
+    def render_rays_test(self, batch):
+        B = batch["rays_o"].shape[0]
+        ret = defaultdict(list)
+        for i in range(0, B, self.hparams.chunk):
+            batch_chunk = dict()
+            for k, v in batch.items():
+                if k =='radii':
+                    batch_chunk[k] = v[:, i : i + self.hparams.chunk]
+                else:
+                    batch_chunk[k] = v[i : i + self.hparams.chunk]                
+            rendered_results_chunk = self.model(
+                batch_chunk, False, self.white_bkgd, self.near, self.far
+            )
+            #here 1 denotes fine
+            for k, v in rendered_results_chunk[1].items():
+                ret[k] += [v]
+        for k, v in ret.items():
+            ret[k] = torch.cat(v, 0)
+        
+        psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
+        lpips_ = self.lpips_legacy(ret["comp_rgb"], batch["target"]).mean()
+
+        rmse, mae = self.depth_mae_rmse()
+        return ret, psnr_, lpips_, rmse, mae
+
     def validation_step(self, batch, batch_idx):
         for k,v in batch.items():
             batch[k] = v.squeeze()
@@ -438,8 +464,17 @@ class LitRefNeRF(LitModel):
 
     def test_step(self, batch, batch_idx):
         for k,v in batch.items():
-            print(k,v.shape)
-        return self.render_rays(batch, batch_idx)
+            batch[k] = v.squeeze()
+            if k =='radii':
+                batch[k] = v.unsqueeze(-1)
+        W,H = self.hparams.img_wh
+        dir_name = f'results/{self.hparams.dataset_name}/{self.hparams.save_path}'
+        os.makedirs(dir_name, exist_ok=True)
+        ret, psnr_ = self.render_rays(batch)
+
+        img_pred = np.clip(ret["comp_rgb"].view(H, W, 3).cpu().numpy(), 0, 1)
+        img_pred_ = (img_pred * 255).astype(np.uint8)
+        imageio.imwrite(os.path.join(dir_name, f'{batch_idx:03d}.png'), img_pred_)
 
     def configure_optimizers(self):
         return torch.optim.Adam(
@@ -511,41 +546,41 @@ class LitRefNeRF(LitModel):
     #     self.log("val/ssim", ssim_mean.item(), on_epoch=True, sync_dist=True)
     #     self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
 
-    def test_epoch_end(self, outputs):
-        all_image_sizes = self.test_dataset.image_sizes
-        # dmodule = self.trainer.datamodule
-        # all_image_sizes = (
-        #     dmodule.all_image_sizes
-        #     if not dmodule.eval_test_only
-        #     else dmodule.test_image_sizes
-        # )
-        rgbs = self.alter_gather_cat(outputs, "rgb", all_image_sizes)
-        targets = self.alter_gather_cat(outputs, "target", all_image_sizes)
-        # psnr = self.psnr(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
-        # ssim = self.ssim(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
-        # lpips = self.lpips(
-        #     rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test
-        # )
+    # def test_epoch_end(self, outputs):
+    #     all_image_sizes = self.test_dataset.image_sizes
+    #     # dmodule = self.trainer.datamodule
+    #     # all_image_sizes = (
+    #     #     dmodule.all_image_sizes
+    #     #     if not dmodule.eval_test_only
+    #     #     else dmodule.test_image_sizes
+    #     # )
+    #     rgbs = self.alter_gather_cat(outputs, "rgb", all_image_sizes)
+    #     targets = self.alter_gather_cat(outputs, "target", all_image_sizes)
+    #     # psnr = self.psnr(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
+    #     # ssim = self.ssim(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
+    #     # lpips = self.lpips(
+    #     #     rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test
+    #     # )
 
-        psnr = self.psnr(rgbs, targets, None, None, None)
-        ssim = self.ssim(rgbs, targets, None, None, None)
-        lpips = self.lpips(
-            rgbs, targets, None, None, None
-        )
+    #     psnr = self.psnr(rgbs, targets, None, None, None)
+    #     ssim = self.ssim(rgbs, targets, None, None, None)
+    #     lpips = self.lpips(
+    #         rgbs, targets, None, None, None
+    #     )
 
-        self.log("test/psnr", psnr["test"], on_epoch=True)
-        self.log("test/ssim", ssim["test"], on_epoch=True)
-        self.log("test/lpips", lpips["test"], on_epoch=True)
+    #     self.log("test/psnr", psnr["test"], on_epoch=True)
+    #     self.log("test/ssim", ssim["test"], on_epoch=True)
+    #     self.log("test/lpips", lpips["test"], on_epoch=True)
 
-        if self.trainer.is_global_zero:
-            image_dir = os.path.join("ckpts",self.hparams.exp_name, "render_model")
-            os.makedirs(image_dir, exist_ok=True)
-            store_image(image_dir, rgbs)
+    #     if self.trainer.is_global_zero:
+    #         image_dir = os.path.join("ckpts",self.hparams.exp_name, "render_model")
+    #         os.makedirs(image_dir, exist_ok=True)
+    #         store_image(image_dir, rgbs)
 
-            result_path = os.path.join("ckpts",self.hparams.exp_name, "results.json")
-            self.write_stats(result_path, psnr, ssim, lpips)
+    #         result_path = os.path.join("ckpts",self.hparams.exp_name, "results.json")
+    #         self.write_stats(result_path, psnr, ssim, lpips)
 
-        return psnr, ssim, lpips
+    #     return psnr, ssim, lpips
 
     def orientation_loss(self, rendered_results, viewdirs):
         total_loss = 0.0

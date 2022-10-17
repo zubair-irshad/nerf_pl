@@ -239,7 +239,7 @@ class RefNeRFMLP(nn.Module):
 class RefNeRF(nn.Module):
     def __init__(
         self,
-        num_samples: int = 64,
+        num_samples: int = 128,
         num_levels: int = 2,
         resample_padding: float = 0.01,
         stop_level_grad: bool = True,

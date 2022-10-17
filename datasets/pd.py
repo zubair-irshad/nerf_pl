@@ -1,3 +1,4 @@
+from logging.config import valid_ident
 import torch
 from torch.utils.data import Dataset
 import json
@@ -49,17 +50,12 @@ class PDDataset(Dataset):
         self.model_type = model_type
 
     def read_meta(self):
-        # self.base_dir = self.root_dir
-
-        # if self.split == 'val' or self.split == 'test':
-        #     split = 'val'
-        # else:
-        #     split = 'train'
-        # if self.split == 'val':
-        #     split = 'train'
-        # else:
-        #     split = 'train'
-        self.base_dir = os.path.join(self.root_dir, self.split)
+        
+        if self.split == 'test':
+            split = 'val'
+        else:
+            split = self.split
+        self.base_dir = os.path.join(self.root_dir, split)
         # self.base_dir = os.path.join(self.root_dir, 'train')
         self.img_files = os.listdir(os.path.join(self.base_dir, 'rgb'))
         self.img_files.sort()
@@ -67,6 +63,9 @@ class PDDataset(Dataset):
         #for object centric
         self.near = 2.0
         self.far = 6.0
+
+        # self.near = 0.2
+        # self.far = 3.0
 
         #for backgrond modelling as well
         # self.near = 0.2
@@ -173,7 +172,7 @@ class PDDataset(Dataset):
             return len(self.all_rays)
 
     def __getitem__(self, idx):
-        if self.split == 'train': # use data in the buffers
+        if self.split == 'train' or self.split == 'test': # use data in the buffers
             # for running NeRFFactory RefNeRF ad NeRF++
             if self.model_type == "Vanilla":
                 sample = {

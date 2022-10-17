@@ -48,7 +48,7 @@ class PD_Multi(Dataset):
         self.xyz_min = np.array([-2.7014, -2.6993, -2.2807]) 
         self.xyz_max = np.array([2.6986, 2.6889, 2.2192])
         # self.samples_per_epoch = 5000
-        self.samples_per_epoch = 100
+        self.samples_per_epoch = 200
 
     def read_train_data(self, instance_dir, image_id, latent_id):
         base_dir = os.path.join(self.base_dir, instance_dir, 'train')

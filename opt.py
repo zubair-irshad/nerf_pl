@@ -9,6 +9,9 @@ def get_opts():
     parser.add_argument('--dataset_name', type=str, default='blender',
                         choices=['blender', 'llff', 'llff_nocs', 'google_scanned', 'objectron', 'srn', 'srn_multi', 'objectron_multi', 'nocs_bckg', 'llff_nsff', 'co3d', 'pd', 'pdmultiobject', 'pd_multi'],
                         help='which dataset to train/val')
+    parser.add_argument('--save_path', type=str,
+                        default='vanilla',
+                        help='save results during eval')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[640, 480],
                         help='resolution (img_w, img_h) of the image')
     parser.add_argument('--white_back', default=False, action="store_true",
@@ -82,7 +85,9 @@ def get_opts():
                         help='batch size')
     # parser.add_argument('--chunk', type=int, default= 16*64,
     #                     help='chunk size to split the input to avoid OOM')
-    parser.add_argument('--chunk', type=int, default= 16*128,
+    # parser.add_argument('--chunk', type=int, default= 16*128,
+    #                     help='chunk size to split the input to avoid OOM')
+    parser.add_argument('--chunk', type=int, default= 32*1024,
                         help='chunk size to split the input to avoid OOM')
     parser.add_argument('--num_epochs', type=int, default=80,
                         help='number of training epochs')

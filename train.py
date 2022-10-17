@@ -71,7 +71,6 @@ class NeRFSystem(LightningModule):
     def forward(self, rays):
         """Do batched inference on rays using chunk."""
         B = rays.shape[0]
-        print("B", B)
         results = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
             # print("=========================\n\n\n")
@@ -110,7 +109,8 @@ class NeRFSystem(LightningModule):
         elif self.hparams.dataset_name == 'objectron' or self.hparams.dataset_name == 'pd':
             kwargs = {'root_dir': self.hparams.root_dir,
                       'img_wh': tuple(self.hparams.img_wh),
-                      'white_back': self.hparams.white_back}
+                      'white_back': self.hparams.white_back,
+                      'model_type': 'Vanilla'}
         elif self.hparams.dataset_name == 'co3d':
             kwargs = {'data_dir': self.hparams.root_dir}
             kwargs['category'] = 'laptop'
