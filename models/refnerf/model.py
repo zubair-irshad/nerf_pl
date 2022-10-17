@@ -335,7 +335,7 @@ class LitRefNeRF(LitModel):
 
         dataset = dataset_dict[self.hparams.dataset_name]
         
-        if self.hparams.dataset_name == 'pd':
+        if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi':
             kwargs_train = {'root_dir': self.hparams.root_dir,
                       'img_wh': tuple(self.hparams.img_wh),
                       'white_back': self.hparams.white_back,
