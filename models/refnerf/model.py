@@ -131,29 +131,22 @@ class RefNeRFMLP(nn.Module):
 
         with torch.set_grad_enabled(True):
             means.requires_grad_(True)
-            print("means", means.shape, covs.shape)
             x = helper.integrated_pos_enc(
                 means=means,
                 covs=covs,
                 min_deg=self.min_deg_point,
                 max_deg=self.max_deg_point,
             )
-            print("x after pos enc", x.shape)
             num_samples, feat_dim = x.shape[1:]
             x = x.reshape(-1, feat_dim)
 
             inputs = x
-            print("inputs x", inputs.shape)
             for idx in range(self.netdepth):
                 x = self.pts_linears[idx](x)
                 x = self.net_activation(x)
                 if idx % self.skip_layer == 0 and idx > 0:
                     x = torch.cat([x, inputs], dim=-1)
-
-            print("x after spatial MLP", x.shape)
             raw_density = self.density_layer(x)
-
-            print("raw_density", raw_density.shape)
 
             raw_density_grad = torch.autograd.grad(
                 outputs=raw_density.sum(), inputs=means, retain_graph=True
@@ -162,19 +155,14 @@ class RefNeRFMLP(nn.Module):
             raw_density_grad = raw_density_grad.reshape(
                 -1, num_samples, self.num_normal_channels
             )
-            print("raw_density_grad", raw_density_grad.shape)
             normals = -ref_utils.l2_normalize(raw_density_grad)
             means.detach()
 
         density = self.density_activation(raw_density + self.density_bias)
         density = density.reshape(-1, num_samples, self.num_density_channels)
-
-        print("density out", density.shape)
-
         grad_pred = self.normal_layer(x).reshape(
             -1, num_samples, self.num_normal_channels
         )
-        print("grad_pred", grad_pred.shape)
         normals_pred = -ref_utils.l2_normalize(grad_pred)
         normals_to_use = normals_pred
 
@@ -197,12 +185,8 @@ class RefNeRFMLP(nn.Module):
         dotprod = torch.sum(
             normals_to_use * viewdirs[..., None, :], dim=-1, keepdims=True
         )
-
-        print("dotprod, dir_enc, bottleneck", bottleneck.shape, dir_enc.shape, dotprod.shape)
         x = torch.cat([bottleneck, dir_enc, dotprod], dim=-1)
-        print("x after dir cat", x.shape)
         x = x.reshape(-1, x.shape[-1])
-        print("x after dir", x.shape)
         inputs = x
         for idx in range(self.netdepth_viewdirs):
             x = self.views_linear[idx](x)
@@ -367,9 +351,6 @@ class LitRefNeRF(LitModel):
     #     self.white_bkgd = self.trainer.datamodule.white_bkgd
 
     def training_step(self, batch, batch_idx):
-
-        for k,v in batch.items():
-            print(k,v.shape)
         rendered_results = self.model(
             batch, self.randomized, self.white_bkgd, self.near, self.far
         )
@@ -426,9 +407,6 @@ class LitRefNeRF(LitModel):
             batch[k] = v.squeeze()
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
-
-        for k,v in batch.items():
-            print(k,v.shape)
         return self.render_rays(batch, batch_idx)
 
     def test_step(self, batch, batch_idx):
