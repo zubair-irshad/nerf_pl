@@ -186,6 +186,7 @@ class PD_Multi(Dataset):
         # elif self.split == 'val': # create data for each image separately
         elif self.split=='val':
             instance_dir = self.ids[idx]
+            print("instance_dir", instance_dir)
             #100 is max number of images
             val_image_id = random.randint(0, 99)
             rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight, instance_ids =  self.read_val_data(instance_dir, val_image_id, latent_id = idx)

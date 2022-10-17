@@ -20,7 +20,7 @@ from models.refnerf.model_conditional import LitRefNeRFConditional
 
 
 def main(hparams):
-    system = LitRefNeRFConditional(hparams=hparams)
+    system = LitRefNeRF(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
