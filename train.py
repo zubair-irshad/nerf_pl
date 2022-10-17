@@ -28,6 +28,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.plugins import DDPPlugin
 import wandb
 from pytorch_lightning.loggers import WandbLogger
+wandb.login(key = '996ee27de02ee214ded37d491317d5a0567f6dc8')
 
 # wandb_logger = WandbLogger()
 

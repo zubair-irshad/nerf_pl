@@ -1,11 +1,12 @@
 
 from opt import get_opts
-
+import wandb
 # pytorch-lightning
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.loggers import WandbLogger
+wandb.login(key = '996ee27de02ee214ded37d491317d5a0567f6dc8')
 wandb_logger = WandbLogger()
 
 #baselines models
