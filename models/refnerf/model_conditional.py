@@ -492,7 +492,7 @@ class LitRefNeRFConditional(LitModel):
     #     return ret
 
     def on_validation_start(self):
-        self.random_batch = np.random.randint(5, size=1)[0]
+        self.random_batch = np.random.randint(10, size=1)[0]
 
     def validation_step(self, batch, batch_idx):
         for k,v in batch.items():
