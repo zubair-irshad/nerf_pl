@@ -39,7 +39,7 @@ class RefNeRFMLP(nn.Module):
         max_deg_point: int = 16,
         netdepth: int = 8,
         netwidth: int = 256,
-        bottleneck_width: int = 128,
+        bottleneck_width: int = 64,
         netdepth_viewdirs: int = 8,
         netwidth_viewdirs: int = 256,
         # net_activation: Callable[..., Any] = nn.ReLU(),
