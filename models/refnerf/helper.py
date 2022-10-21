@@ -214,7 +214,8 @@ def volumetric_rendering_opacity(opacity, t_vals):
     weights = calculate_blend_weights(t_vals, opacity)
     weights = weights[:, :-1]
     output_alpha = weights.sum(-1)
-    return output_alpha, weights
+    depth = (weights * t_vals).sum(dim=-1)
+    return output_alpha, weights, depth
 
 def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd):
     t_mids = 0.5 * (t_vals[..., :-1] + t_vals[..., 1:])
@@ -278,8 +279,9 @@ def volumetric_rendering_rgb(color, opacity, t_vals):
 
     weights = weights[:, :-1]
     output_alpha = weights.sum(-1)
+    depth = (weights * t_vals).sum(dim=-1)
 
-    return output_color, output_alpha
+    return output_color, output_alpha, depth
     
 # def volumetric_rendering_rgb(rgb, density, t_vals, dirs, white_bkgd):
 

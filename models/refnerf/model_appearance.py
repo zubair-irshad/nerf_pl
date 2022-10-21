@@ -134,9 +134,7 @@ class RefNeRFMLP(nn.Module):
     """
 
     def forward(self, samples, viewdirs):
-
         means, covs = samples
-
         with torch.set_grad_enabled(True):
             means.requires_grad_(True)
             print("means", means.shape, covs.shape)

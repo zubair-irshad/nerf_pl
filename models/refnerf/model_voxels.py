@@ -224,7 +224,7 @@ class GeneratorModel(nn.Module):
             if self.train_opacity_rgb:
                 rgb = torch.sigmoid(ray_results["rgb"])
                 desnity = F.softplus(ray_results["density"])
-                comp_rgb, acc = helper.volumetric_rendering_rgb(
+                comp_rgb, acc, depth = helper.volumetric_rendering_rgb(
                     rgb,
                     desnity,
                     t_vals,
@@ -232,17 +232,20 @@ class GeneratorModel(nn.Module):
                 rendered_result = ray_results
                 rendered_result["comp_rgb"] = comp_rgb
                 rendered_result["acc"] = acc
+                rendered_result["depth"] = depth
                 ret.append(rendered_result)
             else:
                 # if train_only_opacity:
                 desnity = F.softplus(ray_results["density"])                
-                acc, weights =  helper.volumetric_rendering_opacity(
+                acc, weights, depth =  helper.volumetric_rendering_opacity(
                         desnity,
                         t_vals
                     )
                 rendered_result = ray_results
                 rendered_result["acc"] = acc
                 rendered_result["weights"] = weights
+                rendered_result["depth"] = depth
+                rendered_result["depth"] = depth
                 ret.append(rendered_result)
         return ret
 
@@ -307,8 +310,14 @@ class LitVoxelGenerator(LitModel):
             self.far = self.train_dataset.far
             self.white_bkgd = self.train_dataset.white_back
 
-        xyz_min = torch.from_numpy(self.train_dataset.xyz_min)
-        xyz_max = torch.from_numpy(self.train_dataset.xyz_max)
+        if torch.is_tensor(self.train_dataset.xyz_min):
+            xyz_min = self.train_dataset.xyz_min
+            xyz_max = self.train_dataset.xyz_max
+        else:
+            xyz_min = torch.from_numpy(self.train_dataset.xyz_min)
+            xyz_max = torch.from_numpy(self.train_dataset.xyz_max)
+
+
         self.model = GeneratorModel(xyz_min = xyz_min, xyz_max = xyz_max, train_opacity_rgb = self.hparams.train_opacity_rgb)
         self.code_library = CodeLibraryVoxel(self.hparams)
         self.models_to_train = [self.model,
@@ -469,6 +478,9 @@ class LitVoxelGenerator(LitModel):
             #here 1 denotes fine
             for k, v in rendered_results_chunk[0].items():
                 ret[k] += [v]
+
+            # ret["positions"] = batch["rays_o"]
+            # ret["viewdirs"] = batch["viewdirs"]
         for k, v in ret.items():
             ret[k] = torch.cat(v, 0)
             # opacity = rendered_results[1]["acc"]
@@ -479,6 +491,28 @@ class LitVoxelGenerator(LitModel):
         # psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
         # self.log("val/psnr", psnr_.item(), on_epoch=True, sync_dist=True)
         self.log("val/psnr", 1.0, on_epoch=True, sync_dist=True)
+        return ret
+
+    def render_rays_test(self, batch, extra=None):
+        B = batch["rays_o"].shape[0]
+        ret = defaultdict(list)
+        for i in range(0, B, self.hparams.chunk):
+            batch_chunk = dict()
+            for k, v in batch.items():
+                batch_chunk[k] = v[i : i + self.hparams.chunk]
+                                    
+            rendered_results_chunk = self.model(
+                batch_chunk, False, self.white_bkgd, self.near, self.far, **extra
+            )
+            # rendered_results_chunk = self.model(
+            #     batch_chunk, False, self.white_bkgd, self.near, self.far
+            # )
+            #here 1 denotes fine
+            for k, v in rendered_results_chunk[0].items():
+                ret[k] += [v]
+            ret["positions"] = batch["rays_o"] + batch["viewdirs"] * rendered_results_chunk[0]["depth"][..., np.newaxis]
+        for k, v in ret.items():
+            ret[k] = torch.cat(v, 0)
         return ret
 
     def on_validation_start(self):
@@ -514,7 +548,12 @@ class LitVoxelGenerator(LitModel):
                 })
 
     def test_step(self, batch, batch_idx):
-        return self.render_rays(batch, batch_idx)
+        ret = self.render_rays_test(batch, batch_idx)
+
+        voxels = OcTree.build_from_samples(positions,
+                                            args.voxel_depth,
+                                            args.min_leaf_size,
+                                            colors)
 
     def configure_optimizers(self):
         parameters = helper.get_parameters(self.models_to_train)

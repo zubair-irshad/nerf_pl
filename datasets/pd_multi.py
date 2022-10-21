@@ -67,10 +67,10 @@ class PD_Multi(Dataset):
         c2w = torch.FloatTensor(c2w)[:3, :4]
         rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
         img = Image.open(os.path.join(base_dir, 'rgb', img_name))                
-        img = img.resize((w,h), Image.Resampling.LANCZOS)
+        img = img.resize((w,h), Image.LANCZOS)
         #Get masks
         seg_mask = Image.open(os.path.join(base_dir, 'semantic_segmentation_2d', img_name))
-        seg_mask = seg_mask.resize((w,h), Image.Resampling.LANCZOS)
+        seg_mask = seg_mask.resize((w,h), Image.LANCZOS)
         seg_mask =  np.array(seg_mask)
         seg_mask[seg_mask!=5] =0
         seg_mask[seg_mask==5] =1
@@ -110,10 +110,10 @@ class PD_Multi(Dataset):
         c2w = torch.FloatTensor(c2w)[:3, :4]
         rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
         img = Image.open(os.path.join(base_dir, 'rgb', img_name))                
-        img = img.resize((w,h), Image.Resampling.LANCZOS)
+        img = img.resize((w,h), Image.LANCZOS)
         #Get masks
         seg_mask = Image.open(os.path.join(base_dir, 'semantic_segmentation_2d', img_name))
-        seg_mask = seg_mask.resize((w,h), Image.Resampling.LANCZOS)
+        seg_mask = seg_mask.resize((w,h), Image.LANCZOS)
         seg_mask =  np.array(seg_mask)
         seg_mask[seg_mask!=5] =0
         seg_mask[seg_mask==5] =1
@@ -149,6 +149,9 @@ class PD_Multi(Dataset):
             # return len(self.ids)
         elif self.split == 'val':
             return len(self.ids)
+        else:
+            return len(self.ids[:10])
+
 
     def __getitem__(self, idx):
         random.seed()
@@ -213,14 +216,34 @@ class PD_Multi(Dataset):
                 sample["instance_mask_weight"] = instance_mask_weight
                 sample["instance_ids"] = instance_ids
 
-        # else:
-        #     sample = {}
-        #     sample["rays_o"] = self.all_rays[idx][:3]
-        #     sample["rays_d"] = self.all_rays_d[idx]
-        #     sample["viewdirs"] = self.all_rays[idx][3:6]
-        #     sample["radii"] = self.all_radii[idx]
-        #     sample["target"] = self.all_rgbs[idx]
-        #     sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
-        #     sample["normals"] = np.zeros_like(sample["rays_o"])
+        else:
+            instance_dir = self.ids[idx]
+            print("instance_dir", instance_dir)
+            #100 is max number of images
+            val_image_id = random.randint(0, 99)
+            rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight, instance_ids =  self.read_val_data(instance_dir, val_image_id, latent_id = idx)
+            if self.model_type == "Vanilla":
+                sample = {
+                    "rays": rays,
+                    "rgbs": img,
+                    "img_wh": self.img_wh,
+                    "instance_mask": instance_mask,
+                    "instance_mask_weight": instance_mask_weight,
+                    "instance_ids": instance_ids
+                    
+                }
+            else:
+                sample = {}
+                sample["rays_o"] = rays
+                sample["rays_d"] = rays_d
+                sample["viewdirs"] = view_dirs
+                sample["target"] = img
+                sample["radii"] = radii
+                sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
+                sample["normals"] = np.zeros_like(sample["rays_o"])
+                sample["instance_mask"] = instance_mask
+                sample["instance_mask_weight"] = instance_mask_weight
+                sample["instance_ids"] = instance_ids
+
 
         return sample

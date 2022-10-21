@@ -15,12 +15,12 @@ from models.nerfplusplus.model import LitNeRFPP
 from models.refnerf.model import LitRefNeRF
 
 #Symmetric Voxel based pretraining + RefNeRF autoDecoder
-# from models.refnerf.model_voxels import LitVoxelGenerator
+from models.refnerf.model_voxels import LitVoxelGenerator
 from models.refnerf.model_conditional import LitRefNeRFConditional
 
 
 def main(hparams):
-    system = LitRefNeRFConditional(hparams=hparams)
+    system = LitVoxelGenerator(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
