@@ -41,7 +41,6 @@ def read_poses(pose_dir, img_files):
     for img_file in img_files:
         c2w = np.array(data['transform'][img_file.split('.')[0]])
         all_c2w.append(convert_pose_PD_to_NeRF(np.linalg.inv(asset_pose_) @ c2w))
-        all_c2w.append(c2w)
 
     #scale to fit inside a unit bounding box
     all_c2w = np.array(all_c2w)
@@ -70,7 +69,7 @@ class PD_Multi_AE(Dataset):
         self.xyz_min = np.array([-2.7014, -2.6993, -2.2807]) 
         self.xyz_max = np.array([2.6986, 2.6889, 2.2192])
         # self.samples_per_epoch = 5000
-        self.samples_per_epoch = 200
+        self.samples_per_epoch = 1000
 
     def read_train_data(self, instance_dir, image_id, latent_id):
         base_dir = os.path.join(self.base_dir, instance_dir, 'train')
@@ -181,7 +180,6 @@ class PD_Multi_AE(Dataset):
         if self.split == 'train': # use data in the buffers
             train_idx = random.randint(0, len(self.ids) - 1)
             instance_dir = self.ids[train_idx]
-            print("instance_dir", instance_dir)
             #100 is max number of images
             train_image_id = random.randint(0, 99)
             rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight =  self.read_train_data(instance_dir, train_image_id, latent_id = train_idx)
@@ -219,8 +217,6 @@ def collate_lambda_train(batch, model_type, ray_batch_size=1024):
 
         _, H, W = img.shape
         pix_inds = torch.randint(0,  H * W, (ray_batch_size,))
-
-        print("img", img.shape)
         rgb_gt = img.permute(1,2,0).flatten(0,1)[pix_inds,...] 
         msk_gt = instance_mask.permute(1,2,0).flatten(0,1)[pix_inds,...]
         camera_radii = camera_radii.view(-1)[pix_inds]

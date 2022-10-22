@@ -149,7 +149,6 @@ class RefNeRFMLP(nn.Module):
         embedding_instance_appearance = latents["color"] # B,256
 
         B = embedding_instance_shape.shape[0]
-        print("embedding_instance_shape", embedding_instance_shape.shape)
         means, covs = samples
 
         with torch.set_grad_enabled(True):
@@ -160,13 +159,9 @@ class RefNeRFMLP(nn.Module):
                 min_deg=self.min_deg_point,
                 max_deg=self.max_deg_point,
             )
-
-            print("x", x.shape)
             num_samples, feat_dim = x.shape[1:]
 
             x = x.view(B, -1, num_samples, feat_dim).reshape(B, -1, feat_dim)
-
-            print("x after", x.shape)
             # x = x.reshape(-1, feat_dim)
 
             B, NS_R, feat_dim = x.shape
@@ -175,7 +170,6 @@ class RefNeRFMLP(nn.Module):
             embedding_instance_shape = repeat(embedding_instance_shape, "n1 c -> n1 n2 c", n2=NS_R)
             embedding_instance_appearance = repeat(embedding_instance_appearance, "n1 c -> n1 n2 c", n2=NS_R)
             
-            print("embedding instance after", embedding_instance_shape.shape)
             x = torch.cat([x, embedding_instance_shape], -1)
             inputs = x
             for idx in range(self.netdepth):
@@ -185,8 +179,6 @@ class RefNeRFMLP(nn.Module):
                     x = torch.cat([x, inputs], dim=-1)
 
             raw_density = self.density_layer(x)
-
-            print("raw_density", raw_density.shape)
 
             raw_density = raw_density.view(B, -1, num_samples, self.num_density_channels
                                         ).reshape(-1, self.num_density_channels)
@@ -295,7 +287,6 @@ class RefNeRFAE(nn.Module):
                 near, far, latents):
         B, N, _ = rays["rays_o"].shape
         rays_o, rays_d, radii = rays["rays_o"].reshape(-1,3), rays["rays_d"].reshape(-1,3), rays["radii"].reshape(-1,1)
-        print("rays_o, rays_d, radii", rays_o.shape, rays_d.shape, radii.shape)
         ret = []
         for i_level in range(self.num_levels):
             if i_level == 0:
@@ -310,8 +301,6 @@ class RefNeRFAE(nn.Module):
                     lindisp=self.lindisp,
                     ray_shape=self.ray_shape,
                 )
-
-                print("t_vals", t_vals.shape)
             else:
                 t_vals, samples = helper.resample_along_rays(
                     rays_o=rays_o,
@@ -543,15 +532,6 @@ class LitRefNeRFConditionalAE(LitModel):
                 if k=='img_wh':
                     continue
                 batch_chunk[k] = v[i : i + self.hparams.chunk].unsqueeze(0)                 
-            
-
-            print("=================================\n\n\n")
-            for k,v in batch_chunk.items():
-                if k=='img_wh':
-                    continue
-                print(k,v.shape)
-
-            print("=================================\n\n\n")
 
             rendered_results_chunk = self.model(
                 batch_chunk, False, self.white_bkgd, self.near, self.far, latents
@@ -592,15 +572,15 @@ class LitRefNeRFConditionalAE(LitModel):
         latents = self.model.encode(batch["src_imgs"].unsqueeze(0))
         ret = self.render_rays(batch, latents)
         print("random_batch", self.random_batch)
-        # rank = dist.get_rank()
-        # if rank==0:
-        # if batch_idx == self.random_batch:
-        grid_img = visualize_val_rgb(
-            (W,H), batch, ret
-        )
-        self.logger.experiment.log({
-            "val/GT_pred rgb": wandb.Image(grid_img)
-        })
+        rank = dist.get_rank()
+        if rank==0:
+            if batch_idx == self.random_batch:
+                grid_img = visualize_val_rgb_opacity(
+                    (W,H), batch, ret
+                )
+                self.logger.experiment.log({
+                    "val/GT_pred rgb": wandb.Image(grid_img)
+                })
 
     def test_step(self, batch, batch_idx):
         for k,v in batch.items():
@@ -649,10 +629,10 @@ class LitRefNeRFConditionalAE(LitModel):
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
                         shuffle=True,
-                        num_workers=0,
+                        num_workers=8,
                         batch_size=self.hparams.batch_size,
                         pin_memory=False,
-                        collate_fn = partial(collate_lambda_train, model_type='refnerf', ray_batch_size=1028)
+                        collate_fn = partial(collate_lambda_train, model_type='refnerf', ray_batch_size=2048)
                         )
 
     def val_dataloader(self):
