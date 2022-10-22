@@ -135,7 +135,7 @@ class MultiHeadImgEncoder(nn.Module):
                 head_model.append(nn.Conv2d(spatial_in_size, spatial_out_size, 1))
 
             return nn.Sequential(*head_model)
-        print("sptails", spatials)
+            
         if global_size > 0:
             if "global" in spatials:
                 self.global_head = create_head(spatial_in_size=sum(feature_dims[: num_layers + 1]), spatial_out_size=global_size)

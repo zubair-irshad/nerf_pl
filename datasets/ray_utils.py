@@ -301,3 +301,13 @@ def get_rays_segmented(masks, class_ids, rays_o, rays_d, W, H, N_rays):
         # select_inds = j * W + i
 
     return rays_rgb_obj, rays_rgb_obj_dir, class_ids, (seg_mask>0).flatten()
+
+
+def convert_pose_PD_to_NeRF(C2W):
+
+    flip_axes = np.array([[1,0,0,0],
+                         [0,0,-1,0],
+                         [0,1,0,0],
+                         [0,0,0,1]])
+    C2W = np.matmul(C2W, flip_axes)
+    return C2W

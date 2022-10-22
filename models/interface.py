@@ -23,7 +23,7 @@ class LitModel(pl.LightningModule):
     def __init__(self):
         super().__init__()
         # Important: This property activates manual optimization.
-        self.automatic_optimization = False
+        self.automatic_optimization = True
 
 
     # Utils to reorganize output values from evaluation steps,

@@ -10,17 +10,18 @@ wandb.login(key = '996ee27de02ee214ded37d491317d5a0567f6dc8')
 wandb_logger = WandbLogger()
 
 #baselines models
-from models.nerfplusplus.model import LitNeRFPP
+# from models.nerfplusplus.model import LitNeRFPP
 # from models.mipnerf360.model import LitMipNeRF360
 from models.refnerf.model import LitRefNeRF
 
 #Symmetric Voxel based pretraining + RefNeRF autoDecoder
 from models.refnerf.model_voxels import LitVoxelGenerator
 from models.refnerf.model_conditional import LitRefNeRFConditional
+from models.refnerf.model_conditional_ae import LitRefNeRFConditionalAE
 
 
 def main(hparams):
-    system = LitVoxelGenerator(hparams=hparams)
+    system = LitRefNeRFConditionalAE(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
