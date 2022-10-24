@@ -59,8 +59,6 @@ class PD_Multi_AE(Dataset):
         self.white_back = white_back
         self.base_dir = root_dir
         self.ids = np.sort([f.name for f in os.scandir(self.base_dir)])
-        if self.split=='val':
-            self.ids = self.ids[:15]
 
         self.model_type = model_type
         #for object centric
@@ -173,7 +171,7 @@ class PD_Multi_AE(Dataset):
             return self.samples_per_epoch
             # return len(self.ids)
         elif self.split == 'val':
-            return len(self.ids[:15])
+            return len(self.ids)
         else:
             return len(self.ids[:10])
 
@@ -233,7 +231,7 @@ def collate_lambda_train(batch, model_type, ray_batch_size=1024):
         
         rgb_gt = img.permute(1,2,0).flatten(0,1)[pix_inds,...] 
         msk_gt = instance_mask.permute(1,2,0).flatten(0,1)[pix_inds,...]
-        camera_radii = camera_radii.view(-1)[pix_inds]
+        radii_gt = camera_radii.view(-1)[pix_inds]
         ray = cam_rays.view(-1, cam_rays.shape[-1])[pix_inds]
         ray_d = cam_rays_d.view(-1, cam_rays_d.shape[-1])[pix_inds]
         viewdir = cam_view_dirs.view(-1, cam_view_dirs.shape[-1])[pix_inds]
@@ -246,7 +244,7 @@ def collate_lambda_train(batch, model_type, ray_batch_size=1024):
         view_dirs.append(viewdir)
         rays_d.append(ray_d)
         rgbs.append(rgb_gt)
-        radii.append(camera_radii)
+        radii.append(radii_gt)
     
     imgs = torch.stack(imgs)
     # rgbs = torch.stack(rgbs, 1)  
