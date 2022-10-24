@@ -398,7 +398,7 @@ class LitRefNeRFConditionalAE(LitModel):
         xyz_min = torch.from_numpy(self.train_dataset.xyz_min)
         xyz_max = torch.from_numpy(self.train_dataset.xyz_max)
         self.model = RefNeRFAE()
-        self.code_library = CodeLibraryRefNeRF(self.hparams)
+        # self.code_library = CodeLibraryRefNeRF(self.hparams)
         self.models_to_train = [self.model]
 
     # def setup(self, stage):
@@ -417,9 +417,19 @@ class LitRefNeRFConditionalAE(LitModel):
         rgb_fine = rendered_results[1]["comp_rgb"]
         target = batch["target"].view(-1,3)
 
-        loss0 = helper.img2mse(rgb_coarse, target)
-        loss1 = helper.img2mse(rgb_fine, target)
+        mask = batch["instance_mask"].view(-1, 1).repeat(1, 3)
+
+        loss0 = helper.img2mse(rgb_coarse[mask], target[mask])
+        loss1 = helper.img2mse(rgb_fine[mask], target[mask])
         loss = loss1 + loss0 * self.coarse_loss_mult
+
+        #opacity loss
+        opacity_loss = self.opacity_loss(
+                rendered_results, batch["instance_mask"].view(-1)
+            )     
+        self.log("train/opacity_loss", opacity_loss, on_step=True)
+        loss += opacity_loss
+
 
         if self.compute_normal_metrics:
             normal_mae = self.compute_normal_mae(rendered_results, batch["normals"])
@@ -446,6 +456,7 @@ class LitRefNeRFConditionalAE(LitModel):
         self.log("train/psnr1", psnr1, on_step=True, prog_bar=True, logger=True)
         self.log("train/psnr0", psnr0, on_step=True, prog_bar=True, logger=True)
         self.log("train/loss", loss, on_step=True)
+        self.log("train/lr", helper.get_learning_rate(self.optimizers()))
 
         return loss
 
@@ -519,9 +530,9 @@ class LitRefNeRFConditionalAE(LitModel):
     #     self.log("train/loss", np.mean(loss_all), on_step=True, prog_bar=True, logger=True)
     #     return loss
 
-    def training_epoch_end(self, training_step_outputs):
-        sch = self.lr_schedulers()
-        sch.step()
+    # def training_epoch_end(self, training_step_outputs):
+    #     sch = self.lr_schedulers()
+    #     sch.step()
 
     def render_rays(self, batch, latents):
         B = batch["rays_o"].shape[0]
@@ -542,8 +553,12 @@ class LitRefNeRFConditionalAE(LitModel):
         for k, v in ret.items():
             ret[k] = torch.cat(v, 0)
         
+        mask = batch["instance_mask"].view(-1, 1).repeat(1, 3)
         psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
         self.log("val/psnr", psnr_.item(), on_epoch=True, sync_dist=True)
+
+        psnr_obj = self.psnr_legacy(ret["comp_rgb"][mask], batch["target"][mask]).mean()
+        self.log("val/psnr_obj", psnr_obj.item(), on_epoch=True, sync_dist=True)
         return ret
 
     # def render_rays(self, batch, batch_idx):
@@ -565,8 +580,10 @@ class LitRefNeRFConditionalAE(LitModel):
             batch[k] = v.squeeze()
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
-        # for k,v in batch.items():
-        #     print(k,v.shape)
+        
+        for k,v in batch.items():
+            print(k,v.shape)
+        print("=================\n")
         W,H = batch["img_wh"][0], batch["img_wh"][1]
  
         latents = self.model.encode(batch["src_imgs"].unsqueeze(0))
@@ -587,49 +604,55 @@ class LitRefNeRFConditionalAE(LitModel):
             print(k,v.shape)
         return self.render_rays(batch, batch_idx)
 
+
     def configure_optimizers(self):
-        parameters = helper.get_parameters(self.models_to_train)
-        self.optimizer = torch.optim.Adam(params=parameters, lr=self.lr_init, betas=(0.9, 0.999))
-        scheduler = LambdaLR(self.optimizer, lambda epoch: (1-epoch/(self.hparams.num_epochs))**self.hparams.poly_exp)
-        return [self.optimizer], [scheduler]
+        return torch.optim.Adam(
+            params=self.parameters(), lr=self.lr_init, betas=(0.9, 0.999)
+        )
 
-    # def optimizer_step(
-    #     self,
-    #     epoch,
-    #     batch_idx,
-    #     optimizer,
-    #     optimizer_idx,
-    #     optimizer_closure,
-    #     on_tpu,
-    #     using_native_amp,
-    #     using_lbfgs,
-    # ):
-    #     step = self.trainer.global_step
-    #     max_steps = self.hparams.run_max_steps
+    # def configure_optimizers(self):
+    #     parameters = helper.get_parameters(self.models_to_train)
+    #     self.optimizer = torch.optim.Adam(params=parameters, lr=self.lr_init, betas=(0.9, 0.999))
+    #     scheduler = LambdaLR(self.optimizer, lambda epoch: (1-epoch/(self.hparams.num_epochs))**self.hparams.poly_exp)
+    #     return [self.optimizer], [scheduler]
 
-    #     if self.lr_delay_steps > 0:
-    #         delay_rate = self.lr_delay_mult + (1 - self.lr_delay_mult) * np.sin(
-    #             0.5 * np.pi * np.clip(step / self.lr_delay_steps, 0, 1)
-    #         )
-    #     else:
-    #         delay_rate = 1.0
+    def optimizer_step(
+        self,
+        epoch,
+        batch_idx,
+        optimizer,
+        optimizer_idx,
+        optimizer_closure,
+        on_tpu,
+        using_native_amp,
+        using_lbfgs,
+    ):
+        step = self.trainer.global_step
+        max_steps = self.hparams.run_max_steps
 
-    #     t = np.clip(step / max_steps, 0, 1)
-    #     scaled_lr = np.exp(np.log(self.lr_init) * (1 - t) + np.log(self.lr_final) * t)
-    #     new_lr = delay_rate * scaled_lr
+        if self.lr_delay_steps > 0:
+            delay_rate = self.lr_delay_mult + (1 - self.lr_delay_mult) * np.sin(
+                0.5 * np.pi * np.clip(step / self.lr_delay_steps, 0, 1)
+            )
+        else:
+            delay_rate = 1.0
 
-    #     for pg in optimizer.param_groups:
-    #         pg["lr"] = new_lr
+        t = np.clip(step / max_steps, 0, 1)
+        scaled_lr = np.exp(np.log(self.lr_init) * (1 - t) + np.log(self.lr_final) * t)
+        new_lr = delay_rate * scaled_lr
 
-    #     if self.grad_max_norm > 0:
-    #         nn.utils.clip_grad_norm_(self.parameters(), self.grad_max_norm)
+        for pg in optimizer.param_groups:
+            pg["lr"] = new_lr
 
-    #     optimizer.step(closure=optimizer_closure)
+        if self.grad_max_norm > 0:
+            nn.utils.clip_grad_norm_(self.parameters(), self.grad_max_norm)
+
+        optimizer.step(closure=optimizer_closure)
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
                         shuffle=True,
-                        num_workers=8,
+                        num_workers=16,
                         batch_size=self.hparams.batch_size,
                         pin_memory=False,
                         collate_fn = partial(collate_lambda_train, model_type='refnerf', ray_batch_size=2048)
@@ -685,6 +708,23 @@ class LitRefNeRFConditionalAE(LitModel):
             self.write_stats(result_path, psnr, ssim, lpips)
 
         return psnr, ssim, lpips
+
+    def opacity_loss(self, rendered_results, instance_mask):
+        criterion = nn.MSELoss(reduction="none")
+        loss = (
+            criterion(
+                torch.clamp(rendered_results[0]["acc"], 0, 1),
+                instance_mask.float(),
+            )
+        ).mean()
+        loss += (
+            criterion(
+                torch.clamp(rendered_results[1]["acc"], 0, 1),
+                instance_mask.float(),
+            )
+        ).mean()  
+        return loss 
+
 
     def orientation_loss(self, rendered_results, viewdirs):
         total_loss = 0.0

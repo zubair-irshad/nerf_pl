@@ -59,6 +59,9 @@ class PD_Multi_AE(Dataset):
         self.white_back = white_back
         self.base_dir = root_dir
         self.ids = np.sort([f.name for f in os.scandir(self.base_dir)])
+        if self.split=='val':
+            self.ids = self.ids[:15]
+
         self.model_type = model_type
         #for object centric
         # self.near = 2.0
@@ -69,7 +72,7 @@ class PD_Multi_AE(Dataset):
         self.xyz_min = np.array([-2.7014, -2.6993, -2.2807]) 
         self.xyz_max = np.array([2.6986, 2.6889, 2.2192])
         # self.samples_per_epoch = 5000
-        self.samples_per_epoch = 1000
+        self.samples_per_epoch = 2000
 
     def read_train_data(self, instance_dir, image_id, latent_id):
         base_dir = os.path.join(self.base_dir, instance_dir, 'train')
@@ -170,7 +173,7 @@ class PD_Multi_AE(Dataset):
             return self.samples_per_epoch
             # return len(self.ids)
         elif self.split == 'val':
-            return len(self.ids)
+            return len(self.ids[:15])
         else:
             return len(self.ids[:10])
 
@@ -216,7 +219,18 @@ def collate_lambda_train(batch, model_type, ray_batch_size=1024):
         cam_rays_d = torch.FloatTensor(cam_rays_d)
 
         _, H, W = img.shape
-        pix_inds = torch.randint(0,  H * W, (ray_batch_size,))
+        # pix_inds = torch.randint(0,  H * W, (ray_batch_size,))
+
+        instance_mask_t = instance_mask.permute(1,2,0).flatten(0,1).squeeze(-1)
+        #equal probability of foreground and background
+        N_fg = int(ray_batch_size * 0.5)
+        N_bg = ray_batch_size - N_fg
+        b_fg_inds = torch.nonzero(instance_mask_t == 1)
+        b_bg_inds = torch.nonzero(instance_mask_t == 0)
+        b_fg_inds = b_fg_inds[torch.randperm(b_fg_inds.shape[0])[:N_fg]]
+        b_bg_inds = b_bg_inds[torch.randperm(b_bg_inds.shape[0])[:N_bg]]
+        pix_inds = torch.cat([b_fg_inds, b_bg_inds], 0).squeeze(-1)
+        
         rgb_gt = img.permute(1,2,0).flatten(0,1)[pix_inds,...] 
         msk_gt = instance_mask.permute(1,2,0).flatten(0,1)[pix_inds,...]
         camera_radii = camera_radii.view(-1)[pix_inds]
@@ -290,6 +304,7 @@ def collate_lambda_val(batch, model_type):
     view_dirs = cam_view_dirs.view(-1, cam_view_dirs.shape[-1])
     imgs = img_transform(img)
     
+    print("rays", rays.shape)
     if model_type == "Vanilla":
         sample = {
             "src_imgs": imgs,
@@ -306,7 +321,7 @@ def collate_lambda_val(batch, model_type):
         sample["viewdirs"] = view_dirs
         sample["target"] = rgbs
         sample["radii"] = radii
-        sample["multloss"] = torch.zeros((sample["rays_o"].shape[1], 1))
+        sample["multloss"] = torch.zeros((sample["rays_o"].shape[0], 1))
         sample["normals"] = torch.zeros_like(sample["rays_o"])
         sample["instance_mask"] = instance_masks
         sample["img_wh"] = np.array((w,h))
