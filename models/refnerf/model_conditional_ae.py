@@ -50,8 +50,8 @@ class RefNeRFMLP(nn.Module):
         skip_layer_dir: int = 4,
         perturb: float = 1.0,
         input_ch: int = 3,
-        shape_latent_dim =256,
-        appearance_latent_dim=256,
+        shape_latent_dim =128,
+        appearance_latent_dim=128,
         input_ch_view: int = 3,
         num_rgb_channels: int = 3,
         num_density_channels: int = 1,
@@ -655,7 +655,7 @@ class LitRefNeRFConditionalAE(LitModel):
                         num_workers=16,
                         batch_size=self.hparams.batch_size,
                         pin_memory=False,
-                        collate_fn = partial(collate_lambda_train, model_type='refnerf', ray_batch_size=2048)
+                        collate_fn = partial(collate_lambda_train, model_type='refnerf', ray_batch_size=4096)
                         )
 
     def val_dataloader(self):

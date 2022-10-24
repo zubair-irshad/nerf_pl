@@ -60,6 +60,10 @@ class PD_Multi_AE(Dataset):
         self.base_dir = root_dir
         self.ids = np.sort([f.name for f in os.scandir(self.base_dir)])
 
+        if self.split =='val':
+            self.ids = self.ids[:10]
+
+
         self.model_type = model_type
         #for object centric
         # self.near = 2.0
@@ -168,22 +172,23 @@ class PD_Multi_AE(Dataset):
 
     def __len__(self):
         if self.split == 'train':
-            return self.samples_per_epoch
-            # return len(self.ids)
-        elif self.split == 'val':
+            # return self.samples_per_epoch
             return len(self.ids)
+        elif self.split == 'val':
+            return len(self.ids[:10])
         else:
             return len(self.ids[:10])
 
 
     def __getitem__(self, idx):
-        random.seed()
         if self.split == 'train': # use data in the buffers
-            train_idx = random.randint(0, len(self.ids) - 1)
-            instance_dir = self.ids[train_idx]
+            # train_idx = random.randint(0, len(self.ids) - 1)
+            # instance_dir = self.ids[train_idx]
+            instance_dir = self.ids[idx]
             #100 is max number of images
             train_image_id = random.randint(0, 99)
-            rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight =  self.read_train_data(instance_dir, train_image_id, latent_id = train_idx)
+            #rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight =  self.read_train_data(instance_dir, train_image_id, latent_id = train_idx)
+            rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight =  self.read_train_data(instance_dir, train_image_id, latent_id = idx)
 
             return rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight
                 
