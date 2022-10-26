@@ -19,6 +19,26 @@ import random
 
 img_transform = T.Compose([T.Resize((128, 128)), T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
+
+
+def transform_rays_to_bbox_coordinates(rays_o, rays_d, RTs):
+
+    axis_align_mat = torch.FloatTensor(RTs['RT_inv'])
+    box = torch.FloatTensor(RTs['s'])
+
+    rays_o_bbox = rays_o
+    rays_d_bbox = rays_d
+    T_box_orig = axis_align_mat
+    rays_o_bbox = (T_box_orig[:3, :3] @ rays_o_bbox.T).T + T_box_orig[:3, 3]
+    rays_d_bbox = (T_box_orig[:3, :3] @ rays_d.T).T
+
+    scale_factor = np.max([(box[1,0]-box[0,0]), (box[1,1]-box[0,1]), (box[1,2]-box[0,2])])
+    rays_o_bbox/=scale_factor
+    viewdirs_bbox = rays_d_bbox
+    viewdirs_bbox /= torch.norm(viewdirs_bbox, dim=-1, keepdim=True)
+
+    return rays_o_bbox, rays_d_bbox, viewdirs_bbox
+
 def get_bbox_from_mask(inst_mask):
     # bounding box
     horizontal_indicies = np.where(np.any(inst_mask, axis=0))[0]
@@ -30,25 +50,41 @@ def get_bbox_from_mask(inst_mask):
     y2 += 1
     return x1, x2, y1, y2
 
+
 def read_poses(pose_dir, img_files):
     pose_file = os.path.join(pose_dir, 'pose.json')
     with open(pose_file, "r") as read_content:
-        data = json.load(read_content) 
+        data = json.load(read_content)
     focal = data['focal']
     img_wh = data['img_size']
     asset_pose_ = data["vehicle_pose"]
     all_c2w = []
     for img_file in img_files:
         c2w = np.array(data['transform'][img_file.split('.')[0]])
-        all_c2w.append(convert_pose_PD_to_NeRF(np.linalg.inv(asset_pose_) @ c2w))
-
-    #scale to fit inside a unit bounding box
+        all_c2w.append(convert_pose_PD_to_NeRF(c2w))
     all_c2w = np.array(all_c2w)
-    pose_scale_factor = 1. / np.max(np.abs(all_c2w[:, :3, 3]))
-    # bbox_dimensions = np.array(bbox_dimensions)*pose_scale_factor
-    all_c2w[:, :3, 3] *= pose_scale_factor
+    bbox_dimensions = data['bbox_dimensions']
+    asset_pose_inv = np.linalg.inv(asset_pose_)
+    RTs = {'RT_inv': asset_pose_inv, 's': bbox_dimensions}
+    return all_c2w, focal, img_wh, RTs
 
-    return all_c2w, focal, img_wh
+# def read_poses(pose_dir, img_files):
+#     pose_file = os.path.join(pose_dir, 'pose.json')
+#     with open(pose_file, "r") as read_content:
+#         data = json.load(read_content) 
+#     focal = data['focal']
+#     img_wh = data['img_size']
+#     asset_pose_ = data["vehicle_pose"]
+#     all_c2w = []
+#     for img_file in img_files:
+#         c2w = np.array(data['transform'][img_file.split('.')[0]])
+#         all_c2w.append(convert_pose_PD_to_NeRF(np.linalg.inv(asset_pose_) @ c2w))
+#     #scale to fit inside a unit bounding box
+#     all_c2w = np.array(all_c2w)
+#     pose_scale_factor = 1. / np.max(np.abs(all_c2w[:, :3, 3]))
+#     # bbox_dimensions = np.array(bbox_dimensions)*pose_scale_factor
+#     all_c2w[:, :3, 3] *= pose_scale_factor
+#     return all_c2w, focal, img_wh
 
 
 class PD_Multi_AE(Dataset):
@@ -60,8 +96,8 @@ class PD_Multi_AE(Dataset):
         self.base_dir = root_dir
         self.ids = np.sort([f.name for f in os.scandir(self.base_dir)])
 
-        if self.split =='val':
-            self.ids = self.ids[:10]
+        # if self.split =='val':
+        #     self.ids = self.ids[:10]
 
 
         self.model_type = model_type
@@ -69,8 +105,8 @@ class PD_Multi_AE(Dataset):
         # self.near = 2.0
         # self.far = 6.0
 
-        self.near = 0.3
-        self.far = 3.0
+        self.near = 1.5
+        self.far = 4.0
         self.xyz_min = np.array([-2.7014, -2.6993, -2.2807]) 
         self.xyz_max = np.array([2.6986, 2.6889, 2.2192])
         # self.samples_per_epoch = 5000
@@ -81,8 +117,9 @@ class PD_Multi_AE(Dataset):
         img_files = os.listdir(os.path.join(base_dir, 'rgb'))
         img_files.sort()
 
-        all_c2w, focal, img_size = read_poses(pose_dir = os.path.join(base_dir, 'pose'), img_files= img_files)
-        w, h = self.img_wh        
+        all_c2w, focal, img_size, RTs = read_poses(pose_dir = os.path.join(base_dir, 'pose'), img_files= img_files)
+        w, h = self.img_wh       
+        focal *=(w/img_size[0])  # modify focal length to match size self.img_wh 
         
         img_name = img_files[image_id]
             
@@ -109,11 +146,14 @@ class PD_Multi_AE(Dataset):
         img = rgb_masked[y1:y2, x1:x2]
         instance_mask = instance_mask[y1:y2, x1:x2]
 
-        h_new, w_new, _ =  img.shape
-        focal *=(w_new/img_size[0])  # modify focal length to match size self.img_wh
-        directions = get_ray_directions(h_new, w_new, focal) # (h, w, 3)
+        directions = get_ray_directions(h, w, focal) # (h, w, 3)
         rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
-
+        rays_o, rays_d, view_dirs = transform_rays_to_bbox_coordinates(rays_o, rays_d, RTs)
+        
+        rays_o = rays_o.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+        rays_d = rays_d.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+        view_dirs = view_dirs.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+        radii = radii.reshape(h,w,1)[y1:y2, x1:x2].contiguous().view(-1, 1)
 
         instance_mask_weight = rebalance_mask(
             instance_mask,
@@ -127,9 +167,10 @@ class PD_Multi_AE(Dataset):
         base_dir = os.path.join(self.base_dir, instance_dir, 'val')
         img_files = os.listdir(os.path.join(base_dir, 'rgb'))
         img_files.sort()
-        all_c2w, focal, img_size = read_poses(pose_dir = os.path.join(base_dir, 'pose'), img_files= img_files)
-        
+        all_c2w, focal, img_size, RTs = read_poses(pose_dir = os.path.join(base_dir, 'pose'), img_files= img_files)
         w, h = self.img_wh
+        focal *=(w/img_size[0])  # modify focal length to match size self.img_wh 
+
         img_name = img_files[image_id]
             
         c2w = all_c2w[image_id]
@@ -152,11 +193,14 @@ class PD_Multi_AE(Dataset):
         img = rgb_masked[y1:y2, x1:x2]
         instance_mask = instance_mask[y1:y2, x1:x2]
 
-        h_new, w_new, _ =  img.shape
-        focal *=(w_new/img_size[0])  # modify focal length to match size self.img_wh
-        directions = get_ray_directions(h_new, w_new, focal) # (h, w, 3)
+        directions = get_ray_directions(h, w, focal) # (h, w, 3)
         rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
-
+        rays_o, rays_d, view_dirs = transform_rays_to_bbox_coordinates(rays_o, rays_d, RTs)
+        
+        rays_o = rays_o.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+        rays_d = rays_d.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+        view_dirs = view_dirs.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+        radii = radii.reshape(h,w,1)[y1:y2, x1:x2].contiguous().view(-1, 1)
 
         instance_mask_weight = rebalance_mask(
             instance_mask,
@@ -172,19 +216,19 @@ class PD_Multi_AE(Dataset):
 
     def __len__(self):
         if self.split == 'train':
-            # return self.samples_per_epoch
-            return len(self.ids)
+            return self.samples_per_epoch
+            # return len(self.ids)
         elif self.split == 'val':
-            return len(self.ids[:10])
+            return len(self.ids)
         else:
             return len(self.ids[:10])
 
 
     def __getitem__(self, idx):
         if self.split == 'train': # use data in the buffers
-            # train_idx = random.randint(0, len(self.ids) - 1)
-            # instance_dir = self.ids[train_idx]
-            instance_dir = self.ids[idx]
+            train_idx = random.randint(0, len(self.ids) - 1)
+            instance_dir = self.ids[train_idx]
+            # instance_dir = self.ids[idx]
             #100 is max number of images
             train_image_id = random.randint(0, 99)
             #rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight =  self.read_train_data(instance_dir, train_image_id, latent_id = train_idx)

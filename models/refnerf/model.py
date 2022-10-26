@@ -224,7 +224,7 @@ class RefNeRFMLP(nn.Module):
 class RefNeRF(nn.Module):
     def __init__(
         self,
-        num_samples: int = 128,
+        num_samples: int = 64,
         num_levels: int = 2,
         resample_padding: float = 0.01,
         stop_level_grad: bool = True,
@@ -327,11 +327,13 @@ class LitRefNeRF(LitModel):
             kwargs_train = {'root_dir': self.hparams.root_dir,
                       'img_wh': tuple(self.hparams.img_wh),
                       'white_back': self.hparams.white_back,
-                      'model_type': 'refnerf'}
+                      'model_type': 'refnerf',
+                      'crop': True}
             kwargs_val = {'root_dir': self.hparams.root_dir,
                       'img_wh': tuple(self.hparams.img_wh),
                       'white_back': self.hparams.white_back,
-                      'model_type': 'refnerf'}
+                      'model_type': 'refnerf',
+                      'crop': True}
 
         if self.hparams.run_eval:        
             kwargs_test = {'root_dir': self.hparams.root_dir,
@@ -444,12 +446,20 @@ class LitRefNeRF(LitModel):
         return ret, psnr_, lpips_, rmse, mae
 
     def validation_step(self, batch, batch_idx):
+        W,H = batch["img_wh"][0][0], batch["img_wh"][0][1]
         for k,v in batch.items():
+            if k == 'img_wh':
+                continue
             batch[k] = v.squeeze()
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
 
-        W,H = self.hparams.img_wh
+        for k,v in batch.items():
+            print(k,v.shape)
+
+        # W,H = self.hparams.img_wh
+
+        
         ret = self.render_rays(batch)
         rank = dist.get_rank()
         if rank==0:

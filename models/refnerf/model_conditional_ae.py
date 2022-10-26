@@ -535,23 +535,31 @@ class LitRefNeRFConditionalAE(LitModel):
     #     sch.step()
 
     def render_rays(self, batch, latents):
+        print("==========================\n")
         B = batch["rays_o"].shape[0]
         ret = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
             batch_chunk = dict()
             for k, v in batch.items():
-                if k=='img_wh':
+                if k=='img_wh' or k =='src_imgs':
                     continue
                 batch_chunk[k] = v[i : i + self.hparams.chunk].unsqueeze(0)                 
 
+            for k,v in batch_chunk.items():
+                print(k,v.shape)
             rendered_results_chunk = self.model(
                 batch_chunk, False, self.white_bkgd, self.near, self.far, latents
             )
             #here 1 denotes fine
+            for k,v in rendered_results_chunk[1].items():
+                if k =='comp_rgb' or k=='acc':
+                    print(k,v.shape)
             for k, v in rendered_results_chunk[1].items():
-                ret[k] += [v.squeeze(0)]
+                if k =='comp_rgb' or k=='acc':
+                    ret[k] += [v]
         for k, v in ret.items():
             ret[k] = torch.cat(v, 0)
+        print("==================\n\n")
         
         mask = batch["instance_mask"].view(-1, 1).repeat(1, 3)
         psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
@@ -577,7 +585,9 @@ class LitRefNeRFConditionalAE(LitModel):
 
     def validation_step(self, batch, batch_idx):
         for k,v in batch.items():
-            batch[k] = v.squeeze()
+            print(k,v.shape)
+        
+        for k,v in batch.items():
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
         
@@ -655,7 +665,7 @@ class LitRefNeRFConditionalAE(LitModel):
                         num_workers=16,
                         batch_size=self.hparams.batch_size,
                         pin_memory=False,
-                        collate_fn = partial(collate_lambda_train, model_type='refnerf', ray_batch_size=4096)
+                        collate_fn = partial(collate_lambda_train, model_type='refnerf', ray_batch_size=2048)
                         )
 
     def val_dataloader(self):

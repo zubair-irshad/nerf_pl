@@ -17,25 +17,92 @@ from objectron.schema import annotation_data_pb2 as annotation_protocol
 import glob
 from utils.test_poses import *
 
+def transform_rays_to_bbox_coordinates(rays_o, rays_d, RTs):
+
+    axis_align_mat = torch.FloatTensor(RTs['RT_inv'])
+    box = torch.FloatTensor(RTs['s'])
+
+    rays_o_bbox = rays_o
+    rays_d_bbox = rays_d
+    T_box_orig = axis_align_mat
+    rays_o_bbox = (T_box_orig[:3, :3] @ rays_o_bbox.T).T + T_box_orig[:3, 3]
+    rays_d_bbox = (T_box_orig[:3, :3] @ rays_d.T).T
+
+    scale_factor = np.max([(box[1,0]-box[0,0]), (box[1,1]-box[0,1]), (box[1,2]-box[0,2])])
+    rays_o_bbox/=scale_factor
+    viewdirs_bbox = rays_d_bbox
+    viewdirs_bbox /= torch.norm(viewdirs_bbox, dim=-1, keepdim=True)
+
+    return rays_o_bbox, rays_d_bbox, viewdirs_bbox
+
+def get_bbox_from_mask(inst_mask):
+    # bounding box
+    horizontal_indicies = np.where(np.any(inst_mask, axis=0))[0]
+    vertical_indicies = np.where(np.any(inst_mask, axis=1))[0]
+    x1, x2 = horizontal_indicies[[0, -1]]
+    y1, y2 = vertical_indicies[[0, -1]]
+    # x2 and y2 should not be part of the box. Increment by 1.
+    x2 += 1
+    y2 += 1
+    return x1, x2, y1, y2
+
+
 def read_poses(pose_dir, img_files):
     pose_file = os.path.join(pose_dir, 'pose.json')
     with open(pose_file, "r") as read_content:
         data = json.load(read_content)
-    # fov = data['fov']
-    #hard coded here 
     focal = data['focal']
-    # focal = (800 / 2) / np.tan((fov / 2) / (180 / np.pi))
-    # img_wh = (800,800)
     img_wh = data['img_size']
+    asset_pose_ = data["vehicle_pose"]
     all_c2w = []
     for img_file in img_files:
         c2w = np.array(data['transform'][img_file.split('.')[0]])
-        all_c2w.append(c2w)
-    return all_c2w, focal, img_wh
+        all_c2w.append(convert_pose_PD_to_NeRF(c2w))
+    all_c2w = np.array(all_c2w)
+    bbox_dimensions = data['bbox_dimensions']
+    asset_pose_inv = np.linalg.inv(asset_pose_)
+    RTs = {'RT_inv': asset_pose_inv, 's': bbox_dimensions}
+    return all_c2w, focal, img_wh, RTs
+
+# def read_poses(pose_dir, img_files):
+#     pose_file = os.path.join(pose_dir, 'pose.json')
+#     with open(pose_file, "r") as read_content:
+#         data = json.load(read_content) 
+#     focal = data['focal']
+#     img_wh = data['img_size']
+#     asset_pose_ = data["vehicle_pose"]
+#     all_c2w = []
+#     for img_file in img_files:
+#         c2w = np.array(data['transform'][img_file.split('.')[0]])
+#         all_c2w.append(convert_pose_PD_to_NeRF(np.linalg.inv(asset_pose_) @ c2w))
+
+#     #scale to fit inside a unit bounding box
+#     all_c2w = np.array(all_c2w)
+#     pose_scale_factor = 1. / np.max(np.abs(all_c2w[:, :3, 3]))
+#     # bbox_dimensions = np.array(bbox_dimensions)*pose_scale_factor
+#     all_c2w[:, :3, 3] *= pose_scale_factor
+
+#     return all_c2w, focal, img_wh
+
+# def read_poses(pose_dir, img_files):
+#     pose_file = os.path.join(pose_dir, 'pose.json')
+#     with open(pose_file, "r") as read_content:
+#         data = json.load(read_content)
+#     # fov = data['fov']
+#     #hard coded here 
+#     focal = data['focal']
+#     # focal = (800 / 2) / np.tan((fov / 2) / (180 / np.pi))
+#     # img_wh = (800,800)
+#     img_wh = data['img_size']
+#     all_c2w = []
+#     for img_file in img_files:
+#         c2w = np.array(data['transform'][img_file.split('.')[0]])
+#         all_c2w.append(c2w)
+#     return all_c2w, focal, img_wh
 
 
 class PDDataset(Dataset):
-    def __init__(self, root_dir, split='train', img_wh=(640, 480), white_back=False, model_type = "Vanilla"):
+    def __init__(self, root_dir, split='train', img_wh=(640, 480), white_back=False, model_type = "Vanilla", crop=False):
         self.root_dir = root_dir
         self.split = split
         print("img_wh", img_wh)
@@ -43,6 +110,7 @@ class PDDataset(Dataset):
         self.define_transforms()
         self.all_c2w = []
         self.white_back = white_back
+        self.crop = crop
         self.read_meta()
         w, h = self.img_wh
         self.image_sizes = np.array([[h, w] for i in range(len(self.all_c2w))])
@@ -51,8 +119,8 @@ class PDDataset(Dataset):
 
     def read_meta(self):
         
-        if self.split == 'test':
-            split = 'val'
+        if self.split == 'val':
+            split = 'train'
         else:
             split = self.split
         self.base_dir = os.path.join(self.root_dir, split)
@@ -61,8 +129,11 @@ class PDDataset(Dataset):
         self.img_files.sort()
 
         #for object centric
-        self.near = 2.0
-        self.far = 6.0
+        # self.near = 0.2
+        # self.far = 2.0
+
+        self.near = 1.5
+        self.far = 4.0
 
         # self.near = 0.2
         # self.far = 3.0
@@ -70,11 +141,11 @@ class PDDataset(Dataset):
         #for backgrond modelling as well
         # self.near = 0.2
         # self.far = 3.0
-        self.all_c2w, self.focal, self.img_size = read_poses(pose_dir = os.path.join(self.base_dir, 'pose'), img_files= self.img_files)
+        self.all_c2w, self.focal, self.img_size, self.RTs = read_poses(pose_dir = os.path.join(self.base_dir, 'pose'), img_files= self.img_files)
         w, h = self.img_wh
-        print("self.focal", self.focal)
+        # print("self.focal", self.focal)
         self.focal *=(self.img_wh[0]/self.img_size[0])  # modify focal length to match size self.img_wh
-        print("self.focal after", self.focal)
+        # print("self.focal after", self.focal)
         if self.split == 'train' or self.split == 'test': # create buffer of all rays and rgb data
             self.poses = []
             self.all_rays = []
@@ -88,9 +159,9 @@ class PDDataset(Dataset):
             # self.img_files = self.img_files[:5]
             for i, img_name in enumerate(self.img_files):
                 c2w = self.all_c2w[i]
-                directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
+                # directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
                 c2w = torch.FloatTensor(c2w)[:3, :4]
-                rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
+                # rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
                 img = Image.open(os.path.join(self.base_dir, 'rgb', img_name))                
                 img = img.resize((w,h), Image.LANCZOS)
                 #Get masks
@@ -101,14 +172,36 @@ class PDDataset(Dataset):
                 seg_mask[seg_mask==5] =1
                 instance_mask = seg_mask >0
 
+                x1, x2, y1, y2 = get_bbox_from_mask(instance_mask)
+
                 if self.white_back:
                     rgb_masked = np.ones((h,w,3), dtype=np.uint16)*255
                     instance_mask_repeat = np.repeat(instance_mask[...,None],3,axis=2)
                     rgb_masked[instance_mask_repeat] = np.array(img)[instance_mask_repeat]
-                    img = Image.fromarray(np.uint8(rgb_masked))
+                    # img = Image.fromarray(np.uint8(rgb_masked))
 
-                img = self.transform(img) # (h, w, 3)
-                img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+                if self.crop:
+                    img = rgb_masked[y1:y2, x1:x2]
+                    instance_mask = instance_mask[y1:y2, x1:x2]
+                    img = Image.fromarray(np.uint8(img))
+                    img = self.transform(img) # (h, w, 3)
+                    img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+
+                else:
+                    img = Image.fromarray(np.uint8(rgb_masked))
+                    img = self.transform(img) # (h, w, 3)
+                    img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+
+                directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
+                rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
+                rays_o, rays_d, view_dirs = transform_rays_to_bbox_coordinates(rays_o, rays_d, self.RTs)
+                
+                if self.crop:    
+                    rays_o = rays_o.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+                    rays_d = rays_d.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+                    view_dirs = view_dirs.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+                    radii = radii.reshape(h,w,1)[y1:y2, x1:x2].contiguous().view(-1)
+
 
                 instance_mask_weight = rebalance_mask(
                     instance_mask,
@@ -198,15 +291,15 @@ class PDDataset(Dataset):
 
         # elif self.split == 'val': # create data for each image separately
         elif self.split=='val':
-            idx = 65
+            idx = 4
             # idx = idx
             img_name = self.img_files[idx]
             w, h = self.img_wh
             c2w = self.all_c2w[idx]
-            directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
+            # directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
             c2w = torch.FloatTensor(c2w)[:3, :4]
             # rays_o, rays_d = get_rays(directions, c2w)
-            rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
+            # rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
             img = Image.open(os.path.join(self.base_dir, 'rgb', img_name))  
             img = img.resize((w,h), Image.LANCZOS)     
                     
@@ -218,14 +311,40 @@ class PDDataset(Dataset):
             seg_mask[seg_mask!=5] =0
             seg_mask[seg_mask==5] =1
             instance_mask = seg_mask >0
+
+            x1, x2, y1, y2 = get_bbox_from_mask(instance_mask)
+            
+
             if self.white_back:
                 rgb_masked = np.ones((h,w,3), dtype=np.uint16)*255
                 instance_mask_repeat = np.repeat(instance_mask[...,None],3,axis=2)
                 rgb_masked[instance_mask_repeat] = np.array(img)[instance_mask_repeat]
-                img = Image.fromarray(np.uint8(rgb_masked))
+                # img = Image.fromarray(np.uint8(rgb_masked))
 
-            img = self.transform(img) # (h, w, 3)
-            img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+            if self.crop:
+                img = rgb_masked[y1:y2, x1:x2]
+
+                h_new, w_new, _ = img.shape
+                instance_mask = instance_mask[y1:y2, x1:x2]
+                img = Image.fromarray(np.uint8(img))
+                img = self.transform(img) # (h, w, 3)
+                img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+
+            else:
+                img = Image.fromarray(np.uint8(rgb_masked))
+                img = self.transform(img) # (h, w, 3)
+                img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+
+            directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
+            rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
+            rays_o, rays_d, view_dirs = transform_rays_to_bbox_coordinates(rays_o, rays_d, self.RTs)
+            
+            if self.crop:
+                rays_o = rays_o.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+                rays_d = rays_d.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+                view_dirs = view_dirs.reshape(h,w,3)[y1:y2, x1:x2].contiguous().view(-1, 3)
+                radii = radii.reshape(h,w,1)[y1:y2, x1:x2].contiguous().view(-1)
+
 
             instance_mask_weight = rebalance_mask(
                 instance_mask,
@@ -244,10 +363,10 @@ class PDDataset(Dataset):
                 sample = {
                     "rays": rays,
                     "rgbs": img,
-                    "img_wh": self.img_wh,
                     "instance_mask": instance_mask,
                     "instance_mask_weight": instance_mask_weight,
-                    "instance_ids": instance_ids
+                    "instance_ids": instance_ids,
+                    "img_wh": (w_new,h_new)
                 }
             else:
                 sample = {}
@@ -261,6 +380,7 @@ class PDDataset(Dataset):
                 sample["instance_mask"] = instance_mask
                 sample["instance_mask_weight"] = instance_mask_weight
                 sample["instance_ids"] = instance_ids
+                sample["img_wh"] = np.array((w_new,h_new))
 
         else:
             sample = {}

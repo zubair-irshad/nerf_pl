@@ -53,10 +53,10 @@ def main(hparams):
                     devices=hparams.num_gpus,
                     num_sanity_val_steps=1,
                     benchmark=True,
-                    check_val_every_n_epoch=50,
+                    check_val_every_n_epoch=20,
                     limit_val_batches=10,
                     profiler="simple" if hparams.num_gpus==1 else None,
-                    strategy=DDPPlugin(find_unused_parameters=True) if hparams.num_gpus>1 else None)
+                    strategy=DDPPlugin(find_unused_parameters=False) if hparams.num_gpus>1 else None)
 
     if hparams.run_eval:
         ckpt_path = (
