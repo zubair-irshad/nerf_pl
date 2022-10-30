@@ -22,7 +22,8 @@ from torch.optim.lr_scheduler import LambdaLR
 from collections import defaultdict
 import torch.distributed as dist
 from functools import partial
-from datasets.pd_multi_ae import collate_lambda_train, collate_lambda_val
+# from datasets.pd_multi_ae import collate_lambda_train, collate_lambda_val
+from datasets.srn_multi_ae import collate_lambda_train, collate_lambda_val
 
 import models.refnerf.helper as helper
 from models.resnet_encoder import MultiHeadImgEncoder
@@ -371,13 +372,21 @@ class LitRefNeRFConditionalAE(LitModel):
         
         if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi' or self.hparams.dataset_name == 'pd_multi_ae':
             kwargs_train = {'root_dir': self.hparams.root_dir,
+                            'split': 'train',
                       'img_wh': tuple(self.hparams.img_wh),
                       'white_back': self.hparams.white_back,
                       'model_type': 'refnerf'}
             kwargs_val = {'root_dir': self.hparams.root_dir,
+                        'split': 'val',
                       'img_wh': tuple(self.hparams.img_wh),
                       'white_back': self.hparams.white_back,
                       'model_type': 'refnerf'}
+        elif self.hparams.dataset_name == 'srn_multi_ae':
+            kwargs_train = {'root_dir': self.hparams.root_dir,
+                      'split': 'cars_train'}
+            kwargs_val = {'root_dir': self.hparams.root_dir,
+                      'split': 'cars_val',}
+
 
         if self.hparams.run_eval:        
             kwargs_test = {'root_dir': self.hparams.root_dir,
@@ -389,14 +398,14 @@ class LitRefNeRFConditionalAE(LitModel):
             self.white_bkgd = self.test_dataset.white_back
 
         else:
-            self.train_dataset = dataset(split='train', **kwargs_train)
-            self.val_dataset = dataset(split='val', **kwargs_val)
+            self.train_dataset = dataset(**kwargs_train)
+            self.val_dataset = dataset(**kwargs_val)
             self.near = self.train_dataset.near
             self.far = self.train_dataset.far
             self.white_bkgd = self.train_dataset.white_back
 
-        xyz_min = torch.from_numpy(self.train_dataset.xyz_min)
-        xyz_max = torch.from_numpy(self.train_dataset.xyz_max)
+        # xyz_min = torch.from_numpy(self.train_dataset.xyz_min)
+        # xyz_max = torch.from_numpy(self.train_dataset.xyz_max)
         self.model = RefNeRFAE()
         # self.code_library = CodeLibraryRefNeRF(self.hparams)
         self.models_to_train = [self.model]
@@ -599,7 +608,8 @@ class LitRefNeRFConditionalAE(LitModel):
         latents = self.model.encode(batch["src_imgs"].unsqueeze(0))
         ret = self.render_rays(batch, latents)
         print("random_batch", self.random_batch)
-        rank = dist.get_rank()
+        # rank = dist.get_rank()
+        rank = 0
         if rank==0:
             if batch_idx == self.random_batch:
                 grid_img = visualize_val_rgb_opacity(
@@ -665,7 +675,7 @@ class LitRefNeRFConditionalAE(LitModel):
                         num_workers=16,
                         batch_size=self.hparams.batch_size,
                         pin_memory=False,
-                        collate_fn = partial(collate_lambda_train, model_type='refnerf', ray_batch_size=2048)
+                        collate_fn = partial(collate_lambda_train, model_type='refnerf', ray_batch_size=512)
                         )
 
     def val_dataloader(self):
