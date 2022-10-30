@@ -134,6 +134,21 @@ def visualize_val_rgb(img_wh, batch, results):
     img = T.ToPILImage()(grid)
     return img
 
+def visualize_val_fb_bg_rgb(img_wh, batch, results):
+    W, H = img_wh
+
+    rgbs = batch["target"]
+    img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu()  # (3, H, W)
+    pred_rgb = (results["comp_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
+    pred_fg_rgb = (results["fg_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
+    pred_bg_rgb = (results["bg_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
+    stack = torch.stack(
+        [img_gt, pred_rgb, pred_fg_rgb, pred_bg_rgb]
+    )  # (6, 3, H, W)
+    grid = make_grid(stack, nrow=2)
+    img = T.ToPILImage()(grid)
+    return img
+
 def visualize_val_rgb_opacity(img_wh, batch, results):
 
     W, H = img_wh

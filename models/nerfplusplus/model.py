@@ -19,6 +19,10 @@ from models.utils import store_image, write_stats
 from models.interface import LitModel
 from torch.utils.data import DataLoader
 from datasets import dataset_dict
+from collections import defaultdict
+import torch.distributed as dist
+from utils.train_helper import *
+import wandb
 
 # @gin.configurable()
 class NeRFPPMLP(nn.Module):
@@ -212,8 +216,6 @@ class NeRFPP(nn.Module):
 
             fg_rgb, fg_sigma = predict(fg_samples, fg_mlp)
             bg_rgb, bg_sigma = predict(bg_samples, bg_mlp)
-            
-            print("fg_t_vals", fg_t_vals.shape, fg_rgb.shape, fg_sigma.shape)
             fg_comp_rgb, fg_acc, fg_weights, bg_lambda = helper.volumetric_rendering(
                 fg_rgb,
                 fg_sigma,
@@ -223,7 +225,6 @@ class NeRFPP(nn.Module):
                 in_sphere=True,
                 t_far=far,
             )
-            print("fg_comp_rgb, fg_acc, fg_weights, bg_lambda", fg_comp_rgb.shape, fg_acc.shape, fg_weights.shape, bg_lambda)
             bg_comp_rgb, bg_acc, bg_weights, _ = helper.volumetric_rendering(
                 bg_rgb,
                 bg_sigma,
@@ -262,13 +263,13 @@ class LitNeRFPP(LitModel):
 
         dataset = dataset_dict[self.hparams.dataset_name]
         
-        if self.hparams.dataset_name == 'pd':
+        if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi_obj':
             kwargs_train = {'root_dir': self.hparams.root_dir,
                              'img_wh': tuple(self.hparams.img_wh),
                                 'white_back': self.hparams.white_back,
                                 'model_type': 'nerfpp'}
             kwargs_val = {'root_dir': self.hparams.root_dir,
-                            'img_wh': tuple((int(self.hparams.img_wh[0]/4),int(self.hparams.img_wh[1]/4))),
+                            'img_wh': tuple(self.hparams.img_wh),
                                 'white_back': self.hparams.white_back,
                                 'model_type': 'nerfpp'}
 
@@ -289,10 +290,6 @@ class LitNeRFPP(LitModel):
             self.white_bkgd = self.train_dataset.white_back
 
     def training_step(self, batch, batch_idx):
-
-        for k,v in batch.items():
-            print(k,v.shape)
-
         rendered_results = self.model(
             batch, self.randomized, self.white_bkgd, self.near, self.far
         )
@@ -313,24 +310,58 @@ class LitNeRFPP(LitModel):
 
         return loss
 
-    def render_rays(self, batch, batch_idx):
-        for k,v in batch.items():
-            print(k,v.shape)
-        ret = {}
-        rendered_results = self.model(
-            batch, False, self.white_bkgd, self.near, self.far
-        )
-        rgb_fine = rendered_results[1][0]
-        target = batch["target"]
-        ret["target"] = target
-        ret["rgb"] = rgb_fine
+    def render_rays(self, batch):
+        B = batch["rays_o"].shape[0]
+        ret = defaultdict(list)
+        for i in range(0, B, self.hparams.chunk):
+            batch_chunk = dict()
+            for k, v in batch.items():
+                if k =='radii':
+                    batch_chunk[k] = v[:, i : i + self.hparams.chunk]
+                else:
+                    batch_chunk[k] = v[i : i + self.hparams.chunk]                       
+            rendered_results_chunk = self.model(
+                batch_chunk, False, self.white_bkgd, self.near, self.far
+            )
+            #here 1 denotes fine
+            ret["comp_rgb"]+=[rendered_results_chunk[1][0]]
+            ret["fg_rgb"] +=[rendered_results_chunk[1][1]]
+            ret["bg_rgb"] +=[rendered_results_chunk[1][2]]
+            # for k, v in rendered_results_chunk[1].items():
+            #     ret[k] += [v]
+        for k, v in ret.items():
+            ret[k] = torch.cat(v, 0)
+        psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
+        self.log("val/psnr", psnr_.item(), on_step=True, prog_bar=True, logger=True)
         return ret
+
+    # def render_rays(self, batch, batch_idx):
+    #     ret = {}
+    #     rendered_results = self.model(
+    #         batch, False, self.white_bkgd, self.near, self.far
+    #     )
+    #     rgb_fine = rendered_results[1][0]
+    #     target = batch["target"]
+    #     ret["target"] = target
+    #     ret["rgb"] = rgb_fine
+    #     return ret
 
     def validation_step(self, batch, batch_idx):
         for k,v in batch.items():
             batch[k] = v.squeeze()
-            print(k,v.shape)
-        return self.render_rays(batch, batch_idx)
+            if k =='radii':
+                batch[k] = v.unsqueeze(-1)
+
+        W,H = self.hparams.img_wh
+        ret = self.render_rays(batch)
+        rank = dist.get_rank()
+        if rank==0:
+            grid_img = visualize_val_fb_bg_rgb(
+                (W,H), batch, ret
+            )
+            self.logger.experiment.log({
+                "val/GT_pred rgb": wandb.Image(grid_img)
+            })
 
     def test_step(self, batch, batch_idx):
         for k,v in batch.items():
@@ -393,16 +424,16 @@ class LitNeRFPP(LitModel):
                         batch_size=self.hparams.batch_size,
                         pin_memory=True)
 
-    def validation_epoch_end(self, outputs):
-        val_image_sizes = self.val_dataset.val_image_sizes
-        rgbs = self.alter_gather_cat(outputs, "rgb", val_image_sizes)
-        targets = self.alter_gather_cat(outputs, "target", val_image_sizes)
-        psnr_mean = self.psnr_each(rgbs, targets).mean()
-        ssim_mean = self.ssim_each(rgbs, targets).mean()
-        lpips_mean = self.lpips_each(rgbs, targets).mean()
-        self.log("val/psnr", psnr_mean.item(), on_epoch=True, sync_dist=True)
-        self.log("val/ssim", ssim_mean.item(), on_epoch=True, sync_dist=True)
-        self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
+    # def validation_epoch_end(self, outputs):
+    #     val_image_sizes = self.val_dataset.val_image_sizes
+    #     rgbs = self.alter_gather_cat(outputs, "rgb", val_image_sizes)
+    #     targets = self.alter_gather_cat(outputs, "target", val_image_sizes)
+    #     psnr_mean = self.psnr_each(rgbs, targets).mean()
+    #     ssim_mean = self.ssim_each(rgbs, targets).mean()
+    #     lpips_mean = self.lpips_each(rgbs, targets).mean()
+    #     self.log("val/psnr", psnr_mean.item(), on_epoch=True, sync_dist=True)
+    #     self.log("val/ssim", ssim_mean.item(), on_epoch=True, sync_dist=True)
+    #     self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
 
     def test_epoch_end(self, outputs):
         # dmodule = self.trainer.datamodule

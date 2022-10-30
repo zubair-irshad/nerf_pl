@@ -10,7 +10,7 @@ from datasets import dataset_dict
 # models
 from models.nerf import *
 from models.rendering import *
-
+import torch.distributed as dist
 # optimizer, scheduler, visualization
 from utils import *
 
@@ -106,7 +106,7 @@ class NeRFSystem(LightningModule):
                   'img_wh': tuple(self.hparams.img_wh)}
             kwargs['spheric_poses'] = self.hparams.spheric_poses
             kwargs['val_num'] = self.hparams.num_gpus
-        elif self.hparams.dataset_name == 'objectron' or self.hparams.dataset_name == 'pd':
+        elif self.hparams.dataset_name == 'objectron' or self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi_obj':
             kwargs = {'root_dir': self.hparams.root_dir,
                       'img_wh': tuple(self.hparams.img_wh),
                       'white_back': self.hparams.white_back,
@@ -134,16 +134,16 @@ class NeRFSystem(LightningModule):
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
                           shuffle=True,
-                          num_workers=4,
+                          num_workers=16,
                           batch_size=self.hparams.batch_size,
                           pin_memory=True)
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset,
                           shuffle=False,
-                          num_workers=4,
+                          num_workers=0,
                           batch_size=1, # validate one image (H*W rays) at a time
-                          pin_memory=True)
+                          pin_memory=False)
     
     def training_step(self, batch, batch_nb):
         rays, rgbs = batch['rays'], batch['rgbs']
@@ -183,25 +183,27 @@ class NeRFSystem(LightningModule):
         log = {'val_loss': self.loss(results, batch)}
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
     
-        if batch_nb == 0:
-            print("batch['img_wh']", batch['img_wh'])
-            print("hparams img wh", self.hparams.img_wh)
-            W, H = batch['img_wh']
-            img = results[f'rgb_{typ}'].view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
-            img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
-            depth = visualize_depth(results[f'depth_{typ}'].view(H, W)) # (3, H, W)
-            print("img gt deth before",img_gt.shape, depth.shape)
+        rank = dist.get_rank()
+        if rank==0:
+            if batch_nb == 0:
+                print("batch['img_wh']", batch['img_wh'])
+                print("hparams img wh", self.hparams.img_wh)
+                W, H = batch['img_wh']
+                img = results[f'rgb_{typ}'].view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
+                img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
+                depth = visualize_depth(results[f'depth_{typ}'].view(H, W)) # (3, H, W)
+                print("img gt deth before",img_gt.shape, depth.shape)
 
-            # if self.hparams.dataset_name == 'objectron':
-            #      img_gt = torch.rot90(img_gt.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
-            #      depth = torch.rot90(depth.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
-            #      img = torch.rot90(img.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+                # if self.hparams.dataset_name == 'objectron':
+                #      img_gt = torch.rot90(img_gt.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+                #      depth = torch.rot90(depth.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+                #      img = torch.rot90(img.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
 
-            images = {"gt":img_gt, "predicted": img, "depth": depth}
-            self.logger.experiment.log({
-                "Val images": [wandb.Image(img, caption=caption)
-                for caption, img in images.items()]
-            })
+                images = {"gt":img_gt, "predicted": img, "depth": depth}
+                self.logger.experiment.log({
+                    "Val images": [wandb.Image(img, caption=caption)
+                    for caption, img in images.items()]
+                })
         psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
         log['val_psnr'] = psnr_
 

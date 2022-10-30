@@ -270,7 +270,7 @@ def collate_lambda_train(batch, model_type, ray_batch_size=1024):
 
         instance_mask_t = instance_mask.permute(1,2,0).flatten(0,1).squeeze(-1)
         #equal probability of foreground and background
-        N_fg = int(ray_batch_size * 0.5)
+        N_fg = int(ray_batch_size * 0.8)
         N_bg = ray_batch_size - N_fg
         b_fg_inds = torch.nonzero(instance_mask_t == 1)
         b_bg_inds = torch.nonzero(instance_mask_t == 0)
