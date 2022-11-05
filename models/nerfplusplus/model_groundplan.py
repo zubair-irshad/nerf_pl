@@ -241,9 +241,6 @@ class NeRFPP_GP(nn.Module):
             uv_bg = uv_bg.reshape(-1,2).unsqueeze(0)
             latent_bg = self.encoder.index(uv_bg)
             latent_bg = latent_bg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
-
-            print("latent_fg, latent_bg", latent_fg.shape, latent_bg.shape)
-
             fg_rgb, fg_sigma = predict(fg_samples, fg_mlp, latent_fg)
             bg_rgb, bg_sigma = predict(bg_samples, bg_mlp, latent_bg)
             

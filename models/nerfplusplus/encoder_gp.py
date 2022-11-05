@@ -187,7 +187,6 @@ class GridEncoder(nn.Module):
         latent = self.spatial_encoder.index(
             uv, None, torch.Tensor([W, H]).cuda()
         )
-        print("latent", latent.shape)
         _, L, _ = latent.shape  # (NV, L, grid_size**3)
         latent = latent * mask[:, None, :]
         # get mask for all views
