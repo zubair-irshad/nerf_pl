@@ -130,6 +130,7 @@ class PDMultiObject_AE(Dataset):
             focals = list()
             all_c = list()
             NV = 99
+            src_views = 5
             ray_batch_size = 1024
         
             for train_image_id in range(0, NV):
@@ -164,7 +165,7 @@ class PDMultiObject_AE(Dataset):
             poses = torch.stack(poses, 0)
             focals = torch.stack(focals, 0)
             all_c = torch.stack(all_c, 0)
-            src_views_num = np.random.choice(99, 3, replace=False)
+            src_views_num = np.random.choice(99, src_views, replace=False)
 
             imgs = imgs[src_views_num, :]
             poses = poses[src_views_num, :]
@@ -221,6 +222,7 @@ class PDMultiObject_AE(Dataset):
             focals = list()
             all_c = list()
             NV = 99
+            src_views = 5
             for train_image_id in range(0, NV):
                 cam_rays, cam_view_dirs, cam_rays_d, img, camera_radii, c2w, f, c =  self.read_data(instance_dir, train_image_id)
                 img = Image.fromarray(np.uint8(img))
@@ -255,11 +257,11 @@ class PDMultiObject_AE(Dataset):
             all_c = torch.stack(all_c, 0)
 
             # src_views_num = np.random.choice(99, 3, replace=False)
-            src_views_num = np.sort(np.random.choice(NV, 3, replace=False))
+            src_views_num = np.sort(np.random.choice(NV, src_views, replace=False))
             # src_views_num = np.random.randint(0, 15, 3)
 
-            dest_view_num = np.random.randint(0, NV - 3)
-            for vs in range(3):
+            dest_view_num = np.random.randint(0, NV - src_views)
+            for vs in range(src_views):
                 dest_view_num += dest_view_num >= src_views_num[vs]
 
             dest_view_num = [dest_view_num]
