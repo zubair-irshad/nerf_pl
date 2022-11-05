@@ -395,8 +395,8 @@ class LitNeRFPP_GP(LitModel):
 
         W,H = self.hparams.img_wh
         ret = self.render_rays(batch)
-        # rank = dist.get_rank()
-        rank =0
+        rank = dist.get_rank()
+        # rank =0
         if rank==0:
             grid_img = visualize_val_fb_bg_rgb(
                 (W,H), batch, ret
