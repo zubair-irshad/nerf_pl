@@ -22,6 +22,8 @@ from datasets import dataset_dict
 from collections import defaultdict
 import torch.distributed as dist
 from utils.train_helper import *
+from models.nerfplusplus.util import *
+from models.nerfplusplus.encoder import *
 import wandb
 
 # @gin.configurable()
@@ -33,13 +35,17 @@ class NeRFPPMLP(nn.Module):
         deg_view,
         netdepth: int = 8,
         netwidth: int = 256,
-        netdepth_condition: int = 1,
+        netdepth_condition: int = 2,
         netwidth_condition: int = 64,
         skip_layer: int = 4,
         input_ch: int = 3,
         input_ch_view: int = 3,
         num_rgb_channels: int = 3,
         num_density_channels: int = 1,
+        latent_size:int = 512,
+        combine_layer:int = 6,
+        combine_type="average"
+        
     ):
         for name, value in vars().items():
             if name not in ["self", "__class__"]:
@@ -49,6 +55,8 @@ class NeRFPPMLP(nn.Module):
 
         self.net_activation = nn.ReLU()
         pos_size = ((max_deg_point - min_deg_point) * 2 + 1) * input_ch
+
+        pos_size += latent_size
         view_pos_size = (deg_view * 2 + 1) * input_ch_view
 
         init_layer = nn.Linear(pos_size, netwidth)
@@ -81,15 +89,23 @@ class NeRFPPMLP(nn.Module):
         init.xavier_uniform_(self.density_layer.weight)
         init.xavier_uniform_(self.rgb_layer.weight)
 
-    def forward(self, x, condition):
-        print("x", x.shape)
+    def forward(self, x, condition_tile, latent, combine_inner_dims):
+
         num_samples, feat_dim = x.shape[1:]
         x = x.reshape(-1, feat_dim)
-        print("x after", x.shape)
+        x = torch.cat([x, latent], dim=-1)
         inputs = x
         for idx in range(self.netdepth):
             x = self.pts_linears[idx](x)
             x = self.net_activation(x)
+
+            if idx == self.combine_layer:
+                bottleneck = self.bottleneck_layer(x)
+                #print("bottleneck", bottleneck.shape)
+                x = combine_interleaved(
+                    x, combine_inner_dims, self.combine_type
+                )
+
             if idx % self.skip_layer == 0 and idx > 0:
                 x = torch.cat([x, inputs], dim=-1)
 
@@ -97,16 +113,14 @@ class NeRFPPMLP(nn.Module):
             -1, num_samples, self.num_density_channels
         )
 
-        bottleneck = self.bottleneck_layer(x)
-        print("bottleneck", bottleneck.shape)
-        print("condition[:, None, :]", condition[:, None, :].shape)
-        condition_tile = torch.tile(condition[:, None, :], (1, num_samples, 1)).reshape(
-            -1, condition.shape[-1]
-        )
-        print("condition_tile", condition_tile.shape)
+        #print("condition_tile", condition_tile.shape)
         x = torch.cat([bottleneck, condition_tile], dim=-1)
         for idx in range(self.netdepth_condition):
             x = self.views_linear[idx](x)
+            if idx == 0:
+                x = combine_interleaved(
+                    x, combine_inner_dims, self.combine_type
+                )
             x = self.net_activation(x)
 
         raw_rgb = self.rgb_layer(x).reshape(-1, num_samples, self.num_rgb_channels)
@@ -115,7 +129,7 @@ class NeRFPPMLP(nn.Module):
 
 
 # @gin.configurable()
-class NeRFPP(nn.Module):
+class NeRFPP_AE(nn.Module):
     def __init__(
         self,
         num_levels: int = 2,
@@ -123,8 +137,10 @@ class NeRFPP(nn.Module):
         max_deg_point: int = 10,
         deg_view: int = 4,
         num_coarse_samples: int = 64,
-        num_fine_samples: int = 128,
+        # num_fine_samples: int = 128,
+        num_fine_samples: int = 64,
         use_viewdirs: bool = True,
+        num_src_views: int = 3,
         density_noise: float = 0.0,
         lindisp: bool = False,
     ):
@@ -132,8 +148,9 @@ class NeRFPP(nn.Module):
             if name not in ["self", "__class__"]:
                 setattr(self, name, value)
 
-        super(NeRFPP, self).__init__()
+        super(NeRFPP_AE, self).__init__()
 
+        self.encoder = SpatialEncoder()
         self.rgb_activation = nn.Sigmoid()
         self.sigma_activation = nn.ReLU()
         self.fg_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
@@ -142,6 +159,11 @@ class NeRFPP(nn.Module):
             min_deg_point, max_deg_point, deg_view, input_ch=4
         )
         self.bg_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, input_ch=4)
+
+    def encode(self, images):
+        self.encoder(images)
+        self.image_shape = torch.Tensor([images.shape[-1], images.shape[-2]]).to(images.device)
+        self.latent_size = self.encoder.latent_size
 
     def forward(self, rays, randomized, white_bkgd, near, far):
 
@@ -199,31 +221,83 @@ class NeRFPP(nn.Module):
 
                 fg_mlp = self.fg_fine_mlp
                 bg_mlp = self.bg_fine_mlp
+            
+            # print("rays[viewdirs", rays["viewdirs"].unsqueeze(0).shape, rays["src_poses"].shape)
+            viewdirs = world2camera_viewdirs(rays["viewdirs"].unsqueeze(0), rays["src_poses"], 3)
+            #print("viewdirs", viewdirs.shape)
+            viewdirs_enc = helper.pos_enc(viewdirs, 0, self.deg_view)
 
-            print("view dirs", rays["viewdirs"].shape)
-            viewdirs_enc = helper.pos_enc(rays["viewdirs"], 0, self.deg_view)
-
-            def predict(samples, mlp):
+            def predict(samples, viewdirs_enc, mlp, latent, B_fg, N_samples):
                 samples_enc = helper.pos_enc(
                     samples,
                     self.min_deg_point,
                     self.max_deg_point,
                 )
-                print("samples_enc", samples_enc.shape)
-                raw_rgb, raw_sigma = mlp(samples_enc, viewdirs_enc)
+                #print("viewdirs_enc", viewdirs_enc.shape)
+                viewdirs_enc = torch.tile(viewdirs_enc[:, None, :], (1, N_samples, 1)).reshape(
+                    -1, viewdirs_enc.shape[-1]
+                )
+                #print("viewdirs_enc after", viewdirs_enc.shape)
+                
+                B, N_points, _ =  samples_enc.shape
+                raw_rgb, raw_sigma = mlp(samples_enc, viewdirs_enc, latent, combine_inner_dims=(self.num_src_views, N_points))
                 if self.density_noise != 0.0 and randomized:
                     raw_sigma = (
                         raw_sigma + torch.rand_like(raw_sigma) * self.density_noise
                     )
 
+                #print("raw_rgb",raw_rgb.shape, raw_sigma.shape, B_fg, N_samples)
+                raw_rgb = raw_rgb.reshape(B_fg,N_samples, -1)
+                raw_sigma = raw_sigma.reshape(B_fg,N_samples, -1)
                 rgb = self.rgb_activation(raw_rgb)
                 sigma = self.sigma_activation(raw_sigma)
                 return rgb, sigma
 
-            print("fg_samples, t_vals", fg_samples.shape, fg_t_vals.shape, bg_samples.shape, bg_t_vals.shape)
-            fg_rgb, fg_sigma = predict(fg_samples, fg_mlp)
-            print("fg_rgb", fg_rgb.shape)
-            bg_rgb, bg_sigma = predict(bg_samples, bg_mlp)
+            B_fg, N_fg, _ = fg_samples.shape
+            B_bg, N_bg, _ = bg_samples.shape
+
+            #print("fg_samples", fg_samples.shape, bg_samples.shape)
+
+            fg_samples = fg_samples.reshape(-1,3).unsqueeze(0)
+            fg_samples_cam = world2camera(fg_samples, rays["src_poses"], self.num_src_views)
+
+            bg_samples_pts = bg_samples[:,:,:3].reshape(-1,3).unsqueeze(0)
+            bg_samples_cam = world2camera(bg_samples_pts, rays["src_poses"], self.num_src_views)
+
+            #print("fg_samples_cam", fg_samples_cam.shape, bg_samples_cam.shape)
+
+            # get image features
+            #print("rays[src_focal]", rays["src_focal"].shape, rays["src_c"].shape)
+            focal = rays["src_focal"][0].unsqueeze(-1).repeat((1, 2))
+            c = rays["src_focal"][0].unsqueeze(-1)
+
+            #print("focal, c", focal.shape, c.shape)
+
+            uv_fg = projection(fg_samples_cam, focal, c, self.num_src_views) 
+            uv_bg = projection(bg_samples_cam, focal, c, self.num_src_views)
+
+            depth = bg_samples[:,:, 3].view(-1,1).unsqueeze(0).repeat(bg_samples_cam.shape[0], 1,1)
+            bg_samples_cam = torch.cat((bg_samples_cam, depth), dim=-1)
+
+            #print("uv_fg", uv_fg.shape, uv_bg.shape)
+            
+            latent_fg = self.encoder.index(
+                uv_fg, None, self.image_shape
+            )  # (SB * NS, latent, B) 
+            latent_fg = latent_fg.transpose(1, 2).reshape(
+                    -1, self.latent_size
+                )  # (SB * NS * B, latent)
+            latent_bg = self.encoder.index(
+                uv_bg, None, self.image_shape
+            )  # (SB * NS, latent, B) 
+            latent_bg = latent_bg.transpose(1, 2).reshape(
+                    -1, self.latent_size
+                )  # (SB * NS * B, latent)
+            
+
+            #print("latent_fg", latent_fg.shape, latent_bg.shape)
+            fg_rgb, fg_sigma = predict(fg_samples_cam, viewdirs_enc, fg_mlp, latent_fg, B_fg, N_fg)
+            bg_rgb, bg_sigma = predict(bg_samples_cam, viewdirs_enc, bg_mlp, latent_bg, B_bg, N_bg)
             fg_comp_rgb, fg_acc, fg_weights, bg_lambda = helper.volumetric_rendering(
                 fg_rgb,
                 fg_sigma,
@@ -249,7 +323,7 @@ class NeRFPP(nn.Module):
 
 
 # @gin.configurable()
-class LitNeRFPP(LitModel):
+class LitNeRFPP_AE(LitModel):
     def __init__(
         self,
         hparams,
@@ -264,14 +338,14 @@ class LitNeRFPP(LitModel):
                 print(name, value)
                 setattr(self, name, value)
         self.hparams.update(vars(hparams))
-        super(LitNeRFPP, self).__init__()
-        self.model = NeRFPP()
+        super(LitNeRFPP_AE, self).__init__()
+        self.model = NeRFPP_AE()
 
     def setup(self, stage: Optional[str] = None) -> None:
 
         dataset = dataset_dict[self.hparams.dataset_name]
         
-        if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi_obj':
+        if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi_obj' or self.hparams.dataset_name =='pd_multi_obj_ae':
             kwargs_train = {'root_dir': self.hparams.root_dir,
                              'img_wh': tuple(self.hparams.img_wh),
                                 'white_back': self.hparams.white_back,
@@ -298,6 +372,12 @@ class LitNeRFPP(LitModel):
             self.white_bkgd = self.train_dataset.white_back
 
     def training_step(self, batch, batch_idx):
+
+        for k,v in batch.items():
+            batch[k] = v.squeeze(0)
+
+        self.model.encode(batch["src_imgs"])
+
         rendered_results = self.model(
             batch, self.randomized, self.white_bkgd, self.near, self.far
         )
@@ -324,7 +404,9 @@ class LitNeRFPP(LitModel):
         for i in range(0, B, self.hparams.chunk):
             batch_chunk = dict()
             for k, v in batch.items():
-                if k =='radii':
+                if k == 'src_imgs' or k =='src_poses' or k =='src_focal' or k=='src_c':
+                   batch_chunk[k] = v 
+                elif k =='radii':
                     batch_chunk[k] = v[:, i : i + self.hparams.chunk]
                 else:
                     batch_chunk[k] = v[i : i + self.hparams.chunk]                       
@@ -360,10 +442,12 @@ class LitNeRFPP(LitModel):
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
 
+        self.model.encode(batch["src_imgs"])
+
         W,H = self.hparams.img_wh
         ret = self.render_rays(batch)
-        # rank = dist.get_rank()
-        rank = 0
+        rank = dist.get_rank()
+        # rank =0
         if rank==0:
             grid_img = visualize_val_fb_bg_rgb(
                 (W,H), batch, ret
@@ -415,7 +499,7 @@ class LitNeRFPP(LitModel):
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
                           shuffle=True,
-                          num_workers=4,
+                          num_workers=32,
                           batch_size=self.hparams.batch_size,
                           pin_memory=True)
 

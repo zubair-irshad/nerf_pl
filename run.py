@@ -11,6 +11,7 @@ wandb_logger = WandbLogger()
 
 #baselines models
 from models.nerfplusplus.model import LitNeRFPP
+from models.vanilla_nerf.model_pixel import LitPixelNeRF
 # from models.mipnerf360.model import LitMipNeRF360
 from models.refnerf.model import LitRefNeRF
 
@@ -18,10 +19,11 @@ from models.refnerf.model import LitRefNeRF
 from models.refnerf.model_voxels import LitVoxelGenerator
 from models.refnerf.model_conditional import LitRefNeRFConditional
 from models.refnerf.model_conditional_ae import LitRefNeRFConditionalAE
+from models.nerfplusplus.model_ae import LitNeRFPP_AE
 
 
 def main(hparams):
-    system = LitNeRFPP(hparams=hparams)
+    system = LitPixelNeRF(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
@@ -53,10 +55,10 @@ def main(hparams):
                     devices=hparams.num_gpus,
                     num_sanity_val_steps=1,
                     benchmark=True,
-                    check_val_every_n_epoch=20,
+                    check_val_every_n_epoch=1,
                     limit_val_batches=10,
                     profiler="simple" if hparams.num_gpus==1 else None,
-                    strategy=DDPPlugin(find_unused_parameters=False) if hparams.num_gpus>1 else None)
+                    strategy=DDPPlugin(find_unused_parameters=True) if hparams.num_gpus>1 else None)
 
     if hparams.run_eval:
         ckpt_path = (

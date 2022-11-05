@@ -19,8 +19,6 @@ import random
 
 img_transform = T.Compose([T.Resize((128, 128)), T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-
-
 def transform_rays_to_bbox_coordinates(rays_o, rays_d, RTs):
 
     axis_align_mat = torch.FloatTensor(RTs['RT_inv'])

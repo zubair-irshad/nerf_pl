@@ -16,6 +16,7 @@ from .pdmultiobject import PDMultiObject
 from .pd_multi import PD_Multi
 from .pd_multi_ae import PD_Multi_AE
 from .srn_multi_ae import SRN_Multi_AE
+from .pdmultiobject_ae import PDMultiObject_AE
 
 dataset_dict = {'blender': BlenderDataset,
                 'llff': LLFFDataset,
@@ -30,9 +31,10 @@ dataset_dict = {'blender': BlenderDataset,
                 # 'co3d': CO3D_Instance,
                 'pd': PDDataset,
                 'pd_multi': PD_Multi,
-                'pdmultiobject': PDMultiObject,
+                'pd_multi_obj': PDMultiObject,
                 'pd_multi_ae': PD_Multi_AE,
-                'srn_multi_ae': SRN_Multi_AE}
+                'srn_multi_ae': SRN_Multi_AE,
+                'pd_multi_obj_ae': PDMultiObject_AE}
 
 # dataset_dict = {'blender': BlenderDataset,
 #                 'llff': LLFFDataset}
