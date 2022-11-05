@@ -269,8 +269,8 @@ class NeRFPP_AE(nn.Module):
             # get image features
             #print("rays[src_focal]", rays["src_focal"].shape, rays["src_c"].shape)
             focal = rays["src_focal"][0].unsqueeze(-1).repeat((1, 2))
-            c = rays["src_focal"][0].unsqueeze(-1)
-
+            focal[..., 1] *= -1.0
+            c = rays["src_c"][0].unsqueeze(0)
             #print("focal, c", focal.shape, c.shape)
 
             uv_fg = projection(fg_samples_cam, focal, c, self.num_src_views) 

@@ -23,7 +23,7 @@ from models.nerfplusplus.model_ae import LitNeRFPP_AE
 
 
 def main(hparams):
-    system = LitPixelNeRF(hparams=hparams)
+    system = LitNeRFPP_AE(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
