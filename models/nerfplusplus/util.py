@@ -33,7 +33,7 @@ def world2camera_viewdirs(w_viewdirs, cam2world, NS):
     return viewdirs
 
 
-def world2camera(w_xyz, cam2world, NS):
+def world2camera(w_xyz, cam2world, NS=None):
     """Converts the points in world coordinates to camera view.
     :param xyz: points in world coordinates (SB*NV, NC, 3)
     :param poses: camera matrix (SB*NV, 4, 4)
@@ -43,7 +43,8 @@ def world2camera(w_xyz, cam2world, NS):
     : NC number of coordinate points
     """
     #print(w_xyz.shape, cam2world.shape)
-    w_xyz = repeat_interleave(w_xyz, NS)  # (SB*NS, B, 3)
+    if NS is not None:
+        w_xyz = repeat_interleave(w_xyz, NS)  # (SB*NS, B, 3)
     rot = cam2world[:, :3, :3].transpose(1, 2)  # (B, 3, 3)
     trans = -torch.bmm(rot, cam2world[:, :3, 3:])  # (B, 3, 1)
     #print(rot.shape, w_xyz.shape)
@@ -52,7 +53,7 @@ def world2camera(w_xyz, cam2world, NS):
     # cam_xyz = cam_xyz.reshape(-1, 3)  # (SB*B, 3)
     return cam_xyz
 
-def projection(c_xyz, focal, c, NV):
+def projection(c_xyz, focal, c, NV=None):
     """Converts [x,y,z] in camera coordinates to image coordinates 
         for the given focal length focal and image center c.
     :param c_xyz: points in camera coordinates (SB*NV, NP, 3)
@@ -60,6 +61,10 @@ def projection(c_xyz, focal, c, NV):
     :c: image center (SB, 2)
     :output uv: pixel coordinates (SB, NV, NP, 2)
     """
+    
+    if NV is None:
+        NV = int(c_xyz.shape[0]/c.shape[0])
+
     uv = -c_xyz[..., :2] / (c_xyz[..., 2:] + 1e-9)  # (SB*NV, NC, 2); NC: number of grid cells 
     uv *= repeat_interleave(
                 focal.unsqueeze(1), NV if focal.shape[0] > 1 else 1

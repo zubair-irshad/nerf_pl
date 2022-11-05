@@ -84,13 +84,13 @@ class GridEncoder(nn.Module):
                                               feature_scale=1.0,
                                               use_first_pool=True,
                                               norm_type="batch")
-        self.latent_size = self.spatial_encoder.target_latent_size  # self.spatial_encoder.latent_size/8
+        self.latent_size = self.spatial_encoder.latent_size  # self.spatial_encoder.latent_size/8
         self.index_interp = index_interp
         self.index_padding = index_padding
         self.upsample_interp = upsample_interp
         LS = self.latent_size
         # To encode latent from spatial encoder with camera depth
-        self.depth_fc = DepthPillarEncoder(inp_ch=self.spatial_encoder.target_latent_size + 3 + 3, LS=LS)
+        self.depth_fc = DepthPillarEncoder(inp_ch=self.spatial_encoder.latent_size + 3 + 3, LS=LS)
 
         self.pillar_aggregator = nn.Sequential(nn.Linear(LS + 1, LS),
                                                 nn.ReLU(inplace=True),
@@ -162,7 +162,7 @@ class GridEncoder(nn.Module):
 
         focal = focal[0].unsqueeze(-1).repeat((1, 2))
         focal[..., 1] *= -1.0
-        c = c[0].unsqueeze(-1)
+        c = c[0].unsqueeze(0)
 
         NV, C, H, W = images.shape
         self.spatial_encoder(images)
@@ -184,9 +184,10 @@ class GridEncoder(nn.Module):
         # Projecting points in camera coordinates on the image plane
         uv = projection(self.camera_grids, focal, c)  # [f, -f]
 
-        latent, _ = self.spatial_encoder.index(
+        latent = self.spatial_encoder.index(
             uv, None, torch.Tensor([W, H]).cuda()
         )
+        print("latent", latent.shape)
         _, L, _ = latent.shape  # (NV, L, grid_size**3)
         latent = latent * mask[:, None, :]
         # get mask for all views

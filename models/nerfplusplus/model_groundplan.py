@@ -90,7 +90,7 @@ class NeRFPPMLP(nn.Module):
     def forward(self, x, condition, latent):
         num_samples, feat_dim = x.shape[1:]
         x = x.reshape(-1, feat_dim)
-        latent = latent.reshape(-1, latent.reshape[-1])
+        latent = latent.reshape(-1, latent.shape[-1])
         
         x = torch.cat([x, latent], dim=-1)
         inputs = x
@@ -242,6 +242,8 @@ class NeRFPP_GP(nn.Module):
             latent_bg = self.encoder.index(uv_bg)
             latent_bg = latent_bg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
 
+            print("latent_fg, latent_bg", latent_fg.shape, latent_bg.shape)
+
             fg_rgb, fg_sigma = predict(fg_samples, fg_mlp, latent_fg)
             bg_rgb, bg_sigma = predict(bg_samples, bg_mlp, latent_bg)
             
@@ -389,12 +391,12 @@ class LitNeRFPP_GP(LitModel):
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
 
-        self.model.encode(batch["src_imgs"])
+        self.model.encode(batch["src_imgs"], batch["src_poses"], batch["src_focal"], batch["src_c"])
 
         W,H = self.hparams.img_wh
         ret = self.render_rays(batch)
-        rank = dist.get_rank()
-        # rank =0
+        # rank = dist.get_rank()
+        rank =0
         if rank==0:
             grid_img = visualize_val_fb_bg_rgb(
                 (W,H), batch, ret
