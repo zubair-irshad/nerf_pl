@@ -378,6 +378,9 @@ class LitNeRFPP_TP(LitModel):
     #     ret["rgb"] = rgb_fine
     #     return ret
 
+    def on_validation_start(self):
+        self.random_batch = np.random.randint(10, size=1)[0]
+
     def validation_step(self, batch, batch_idx):
         for k,v in batch.items():
             batch[k] = v.squeeze()
@@ -391,12 +394,13 @@ class LitNeRFPP_TP(LitModel):
         rank = dist.get_rank()
         # rank =0
         if rank==0:
-            grid_img = visualize_val_fb_bg_rgb(
-                (W,H), batch, ret
-            )
-            self.logger.experiment.log({
-                "val/GT_pred rgb": wandb.Image(grid_img)
-            })
+            if batch_idx == self.random_batch:
+                grid_img = visualize_val_fb_bg_rgb(
+                    (W,H), batch, ret
+                )
+                self.logger.experiment.log({
+                    "val/GT_pred rgb": wandb.Image(grid_img)
+                })
 
     def test_step(self, batch, batch_idx):
         for k,v in batch.items():
