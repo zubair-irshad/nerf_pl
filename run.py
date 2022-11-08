@@ -58,7 +58,7 @@ def main(hparams):
                     num_sanity_val_steps=1,
                     benchmark=True,
                     check_val_every_n_epoch=1,
-                    limit_val_batches=10,
+                    limit_val_batches=3,
                     profiler="simple" if hparams.num_gpus==1 else None,
                     strategy=DDPPlugin(find_unused_parameters=True) if hparams.num_gpus>1 else None)
 
