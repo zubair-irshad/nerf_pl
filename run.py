@@ -22,10 +22,11 @@ from models.refnerf.model_conditional_ae import LitRefNeRFConditionalAE
 from models.nerfplusplus.model_ae import LitNeRFPP_AE
 # from models.nerfplusplus.model_groundplan import LitNeRFPP_GP
 from models.nerfplusplus.model_triplane import LitNeRFPP_TP
+from models.nerfplusplus.model_co_groundplan import LitNeRFPP_CO_GP
 
 
 def main(hparams):
-    system = LitNeRFPP_TP(hparams=hparams)
+    system = LitNeRFPP_CO_GP(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',

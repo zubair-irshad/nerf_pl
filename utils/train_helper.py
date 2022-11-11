@@ -134,16 +134,45 @@ def visualize_val_rgb(img_wh, batch, results):
     img = T.ToPILImage()(grid)
     return img
 
-def visualize_val_fb_bg_rgb(img_wh, batch, results):
+
+def visualize_val_obj_fb_bg_rgb(img_wh, batch, results):
     W, H = img_wh
 
     rgbs = batch["target"]
     img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu()  # (3, H, W)
     pred_rgb = (results["comp_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
+    
+    pred_obj_rgb = (results["obj_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
     pred_fg_rgb = (results["fg_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
     pred_bg_rgb = (results["bg_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
     stack = torch.stack(
-        [img_gt, pred_rgb, pred_fg_rgb, pred_bg_rgb]
+        [img_gt, pred_rgb, pred_obj_rgb, pred_fg_rgb, pred_bg_rgb]
+    )  # (6, 3, H, W)
+    grid = make_grid(stack, nrow=2)
+    img = T.ToPILImage()(grid)
+    return img
+
+def visualize_val_fb_bg_rgb_opacity(img_wh, batch, results):
+    W, H = img_wh
+
+    rgbs = batch["target"]
+    img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu()  # (3, H, W)
+    pred_rgb = (results["comp_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
+    pred_obj_rgb = (results["obj_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
+    pred_fg_rgb = (results["fg_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
+    pred_bg_rgb = (results["bg_rgb"].view(H, W, 3).permute(2, 0, 1).cpu())
+
+    opacity = visualize_depth(results["obj_acc"].unsqueeze(-1).view(H, W),
+        vmin=0,
+        vmax=1,
+    )  # (3, H, W)
+    target_mask = visualize_depth(batch["instance_mask"].unsqueeze(-1).view(H, W),
+        vmin=0,
+        vmax=1,
+    )# (3, H, W)
+
+    stack = torch.stack(
+        [img_gt, pred_rgb, pred_obj_rgb, pred_fg_rgb, pred_bg_rgb, target_mask, opacity]
     )  # (6, 3, H, W)
     grid = make_grid(stack, nrow=2)
     img = T.ToPILImage()(grid)

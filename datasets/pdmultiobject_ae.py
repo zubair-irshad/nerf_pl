@@ -7,11 +7,12 @@ from PIL import Image
 from torchvision import transforms as T
 from .ray_utils import *
 import random
+from models.nerfplusplus.helper import sample_rays_in_bbox
 
 # img_transform = T.Compose([T.Resize((128, 128)), T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 img_transform = T.Compose([T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-def read_poses(pose_dir_train, pose_dir_val, img_files):
+def read_poses(pose_dir_train, pose_dir_val, img_files, output_boxes = False):
     pose_file_train = os.path.join(pose_dir_train, 'pose.json')
     pose_file_val = os.path.join(pose_dir_val, 'pose.json')
     with open(pose_file_train, "r") as read_content:
@@ -42,7 +43,18 @@ def read_poses(pose_dir_train, pose_dir_val, img_files):
     all_c2w_train = all_c2w[:99, :, :]
     all_c2w_test = all_c2w[99:, :, :]
 
-    return all_c2w_train, all_c2w_test, focal, img_wh
+    # Get bounding boxes for object MLP training only
+    if output_boxes:
+        all_boxes = []
+        for _,v in data['bbox_dimensions'].items():
+                bbox = np.array(v)
+                all_boxes.append(bbox*pose_scale_factor)
+        all_translations = (np.array(data['obj_translations'])- obj_location)*pose_scale_factor
+        all_rotations = data["obj_rotations"]
+        RTs = {'R': all_rotations, 'T': all_translations, 's': all_boxes}
+        return all_c2w_train, all_c2w_test, focal, img_wh, RTs
+    else:
+        return all_c2w_train, all_c2w_test, focal, img_wh
 
 class PDMultiObject_AE(Dataset):
     def __init__(self, root_dir, split='train', img_wh=(640, 480), white_back=False, model_type = "Vanilla"):
@@ -78,10 +90,11 @@ class PDMultiObject_AE(Dataset):
         pose_dir_val = os.path.join(self.base_dir, instance_dir, 'val', 'pose')
 
         if self.split == 'train':
-            all_c2w, _,  focal, img_size = read_poses(pose_dir_train, pose_dir_val, img_files= img_files)
+            #all_c2w, _,  focal, img_size = read_poses(pose_dir_train, pose_dir_val, img_files= img_files)
+            all_c2w, _,  focal, img_size, self.RTs = read_poses(pose_dir_train, pose_dir_val, img_files= img_files, output_boxes=True)
         elif self.split == 'val':
-            # _, all_c2w, focal, img_size = read_poses(pose_dir_train, pose_dir_val, img_files= img_files)
-            all_c2w, _, focal, img_size = read_poses(pose_dir_train, pose_dir_val, img_files= img_files)
+            #all_c2w, _, focal, img_size = read_poses(pose_dir_train, pose_dir_val, img_files= img_files)
+            all_c2w, _, focal, img_size, self.RTs = read_poses(pose_dir_train, pose_dir_val, img_files= img_files, output_boxes=True)
         
         w, h = self.img_wh       
         focal *=(w/img_size[0])  # modify focal length to match size self.img_wh
@@ -185,6 +198,8 @@ class PDMultiObject_AE(Dataset):
             rays_d = rays_d.reshape(-1,3)[pix_inds]
             view_dirs = view_dirs.reshape(-1,3)[pix_inds]
             
+            near_obj, far_obj, instance_mask_gt = sample_rays_in_bbox(self.RTs, rays.numpy(), view_dirs.numpy())
+
             if self.model_type == "Vanilla":
                 sample = {
                     "src_imgs": imgs,
@@ -197,8 +212,9 @@ class PDMultiObject_AE(Dataset):
                 sample["src_poses"] = poses
                 sample["src_focal"] = focals
                 sample["src_c"] = all_c
-
-
+                sample["near_obj"] = near_obj
+                sample["far_obj"] = far_obj
+                sample["instance_mask"] = instance_mask_gt
                 sample["rays_o"] = rays
                 sample["rays_d"] = rays_d
                 sample["viewdirs"] = view_dirs
@@ -282,6 +298,8 @@ class PDMultiObject_AE(Dataset):
             rays = rays[dest_view_num].squeeze(0)
             rays_d = rays_d[dest_view_num].squeeze(0)
             view_dirs = view_dirs[dest_view_num].squeeze(0)
+
+            near_obj, far_obj, instance_mask_gt = sample_rays_in_bbox(self.RTs, rays.numpy(), view_dirs.numpy())
             
             if self.model_type == "Vanilla":
                 sample = {
@@ -294,6 +312,9 @@ class PDMultiObject_AE(Dataset):
                 sample["src_imgs"] = imgs
                 sample["src_poses"] = poses
                 sample["src_focal"] = focals
+                sample["near_obj"] = near_obj
+                sample["far_obj"] = far_obj
+                sample["instance_mask"] = instance_mask_gt
                 sample["src_c"] = all_c
                 sample["rays_o"] = rays
                 sample["rays_d"] = rays_d

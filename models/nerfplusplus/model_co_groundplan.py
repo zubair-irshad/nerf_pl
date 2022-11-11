@@ -23,6 +23,7 @@ from collections import defaultdict
 import torch.distributed as dist
 from utils.train_helper import *
 from models.nerfplusplus.util import *
+# from models.nerfplusplus.encoder_tp import GridEncoder
 from models.nerfplusplus.encoder_gp import GridEncoder
 import wandb
 
@@ -143,11 +144,12 @@ class NeRFPP_GP(nn.Module):
         self.encoder = GridEncoder()
         self.rgb_activation = nn.Sigmoid()
         self.sigma_activation = nn.ReLU()
+        
+        self.obj_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, netdepth=4, skip_layer=2)
+        self.obj_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, netdepth=4, skip_layer=2)
         self.fg_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
         self.fg_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
-        self.bg_coarse_mlp = NeRFPPMLP(
-            min_deg_point, max_deg_point, deg_view, input_ch=4
-        )
+        self.bg_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, input_ch=4)
         self.bg_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, input_ch=4)
 
     def encode(self, images, poses, focal, c):
@@ -158,8 +160,19 @@ class NeRFPP_GP(nn.Module):
         ret = []
         near = torch.full_like(rays["rays_o"][..., -1:], 1e-4)
         far = helper.intersect_sphere(rays["rays_o"], rays["rays_d"])
+        near_obj, far_obj = rays["near_obj"], rays["far_obj"]
         for i_level in range(self.num_levels):
             if i_level == 0:
+                obj_t_vals, obj_samples = helper.sample_along_rays(
+                    rays_o=rays["rays_o"],
+                    rays_d=rays["rays_d"],
+                    num_samples=self.num_coarse_samples,
+                    near=near_obj,
+                    far=far_obj,
+                    randomized=randomized,
+                    lindisp=self.lindisp,
+                    in_sphere=True,
+                )
                 fg_t_vals, fg_samples = helper.sample_along_rays(
                     rays_o=rays["rays_o"],
                     rays_d=rays["rays_d"],
@@ -182,8 +195,21 @@ class NeRFPP_GP(nn.Module):
                 )
                 fg_mlp = self.fg_coarse_mlp
                 bg_mlp = self.bg_coarse_mlp
+                obj_mlp = self.obj_coarse_mlp
 
             else:
+                obj_t_mids = 0.5 * (obj_t_vals[..., 1:] + obj_t_vals[..., :-1])
+                obj_t_vals, obj_samples = helper.sample_pdf(
+                    bins=obj_t_mids,
+                    weights=obj_weights[..., 1:-1],
+                    origins=rays["rays_o"],
+                    directions=rays["rays_d"],
+                    t_vals=obj_t_vals,
+                    num_samples=self.num_fine_samples,
+                    randomized=randomized,
+                    in_sphere=True,
+                )
+
                 fg_t_mids = 0.5 * (fg_t_vals[..., 1:] + fg_t_vals[..., :-1])
                 fg_t_vals, fg_samples = helper.sample_pdf(
                     bins=fg_t_mids,
@@ -209,6 +235,7 @@ class NeRFPP_GP(nn.Module):
 
                 fg_mlp = self.fg_fine_mlp
                 bg_mlp = self.bg_fine_mlp
+                obj_mlp = self.obj_fine_mlp
         
             viewdirs_enc = helper.pos_enc(rays["viewdirs"], 0, self.deg_view)
 
@@ -228,7 +255,25 @@ class NeRFPP_GP(nn.Module):
                 sigma = self.sigma_activation(raw_sigma)
                 return rgb, sigma
 
-            # Get groundplan features here
+            # Get triplane features here
+
+            # B, N_samples, _ = obj_samples.shape
+            # latent_obj = self.encoder.index(obj_samples)
+            # latent_obj = latent_obj.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
+
+            # B, N_samples, _ = fg_samples.shape
+            # latent_fg = self.encoder.index(fg_samples)
+            # latent_fg = latent_fg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
+
+            # B, N_samples, _ = bg_samples.shape
+            # latent_bg = self.encoder.index(bg_samples)
+            # latent_bg = latent_bg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
+
+            B,N_samples, _ = fg_samples.shape
+            uv_obj = obj_samples[:, :, [0, 2]]
+            uv_obj = uv_obj.reshape(-1,2).unsqueeze(0)
+            latent_obj = self.encoder.index(uv_obj)
+            latent_obj = latent_obj.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
 
             B,N_samples, _ = fg_samples.shape
             uv_fg = fg_samples[:, :, [0, 2]]
@@ -241,9 +286,22 @@ class NeRFPP_GP(nn.Module):
             uv_bg = uv_bg.reshape(-1,2).unsqueeze(0)
             latent_bg = self.encoder.index(uv_bg)
             latent_bg = latent_bg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
-            
+
+            #Get predictions for each MLP
+            obj_rgb, obj_sigma = predict(obj_samples, obj_mlp, latent_obj)
             fg_rgb, fg_sigma = predict(fg_samples, fg_mlp, latent_fg)
             bg_rgb, bg_sigma = predict(bg_samples, bg_mlp, latent_bg)
+
+
+            obj_comp_rgb, obj_acc, obj_weights, bg_lambda_obj = helper.volumetric_rendering(
+                obj_rgb,
+                obj_sigma,
+                obj_t_vals,
+                rays["rays_d"],
+                white_bkgd=white_bkgd,
+                in_sphere=True,
+                t_far=far_obj,
+            )
             
             fg_comp_rgb, fg_acc, fg_weights, bg_lambda = helper.volumetric_rendering(
                 fg_rgb,
@@ -263,14 +321,14 @@ class NeRFPP_GP(nn.Module):
                 in_sphere=False,
             )
 
-            comp_rgb = fg_comp_rgb + bg_lambda * bg_comp_rgb
-            ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, fg_acc, bg_acc))
+            comp_rgb = obj_comp_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
+            ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc))
 
         return ret
 
 
 # @gin.configurable()
-class LitNeRFPP_GP(LitModel):
+class LitNeRFPP_CO_GP(LitModel):
     def __init__(
         self,
         hparams,
@@ -285,7 +343,7 @@ class LitNeRFPP_GP(LitModel):
                 print(name, value)
                 setattr(self, name, value)
         self.hparams.update(vars(hparams))
-        super(LitNeRFPP_GP, self).__init__()
+        super(LitNeRFPP_CO_GP, self).__init__()
         self.model = NeRFPP_GP()
 
     def setup(self, stage: Optional[str] = None) -> None:
@@ -364,6 +422,8 @@ class LitNeRFPP_GP(LitModel):
             ret["comp_rgb"]+=[rendered_results_chunk[1][0]]
             ret["fg_rgb"] +=[rendered_results_chunk[1][1]]
             ret["bg_rgb"] +=[rendered_results_chunk[1][2]]
+            ret["obj_rgb"] +=[rendered_results_chunk[1][3]]
+            ret["obj_acc"] +=[rendered_results_chunk[1][6]]
             # for k, v in rendered_results_chunk[1].items():
             #     ret[k] += [v]
         for k, v in ret.items():
@@ -388,15 +448,16 @@ class LitNeRFPP_GP(LitModel):
             batch[k] = v.squeeze()
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
+            if k == "near_obj" or k== "far_obj":
+                batch[k] = batch[k].unsqueeze(-1)
 
         self.model.encode(batch["src_imgs"], batch["src_poses"], batch["src_focal"], batch["src_c"])
-
         W,H = self.hparams.img_wh
         ret = self.render_rays(batch)
-        rank = dist.get_rank()
-        # rank =0
+        # rank = dist.get_rank()
+        rank =0
         if rank==0:
-            grid_img = visualize_val_fb_bg_rgb(
+            grid_img = visualize_val_fb_bg_rgb_opacity(
                 (W,H), batch, ret
             )
             self.logger.experiment.log({
