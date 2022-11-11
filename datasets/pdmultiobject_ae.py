@@ -64,12 +64,11 @@ class PDMultiObject_AE(Dataset):
         self.white_back = white_back
         self.base_dir = root_dir
         self.ids = np.sort([f.name for f in os.scandir(self.base_dir)])
-        print("self.ids", self.ids)
 
         # if self.split =='val':
         #     self.ids = self.ids[:10]
 
-        self.samples_per_epoch = 7000
+        self.samples_per_epoch = 7000 * len(self.ids)
         self.model_type = model_type
         #for object centric
         # self.near = 2.0
