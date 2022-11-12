@@ -480,6 +480,9 @@ class LitNeRFPP_CO_GP(LitModel):
             if k == "near_obj" or k== "far_obj":
                 batch[k] = batch[k].unsqueeze(-1)
 
+        for k,v in batch.items():
+            print(k,v.shape)
+
         self.model.encode(batch["src_imgs"], batch["src_poses"], batch["src_focal"], batch["src_c"])
         W,H = self.hparams.img_wh
         ret = self.render_rays(batch)
