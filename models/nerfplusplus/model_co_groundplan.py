@@ -145,8 +145,8 @@ class NeRFPP_GP(nn.Module):
         self.rgb_activation = nn.Sigmoid()
         self.sigma_activation = nn.ReLU()
         
-        self.obj_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, netdepth=4, skip_layer=2)
-        self.obj_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, netdepth=4, skip_layer=2)
+        self.obj_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
+        self.obj_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
         self.fg_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
         self.fg_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
         self.bg_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, input_ch=4)
@@ -173,12 +173,20 @@ class NeRFPP_GP(nn.Module):
                     lindisp=self.lindisp,
                     in_sphere=True,
                 )
+                near_insphere = near.clone().detach()
+                far_insphere = far.clone().detach()
+                
+                near_insphere[rays["instance_mask"]] = torch.zeros_like(near_insphere[rays["instance_mask"]])
+                far_insphere[rays["instance_mask"]] = torch.zeros_like(far_insphere[rays["instance_mask"]])
+
                 fg_t_vals, fg_samples = helper.sample_along_rays(
                     rays_o=rays["rays_o"],
                     rays_d=rays["rays_d"],
                     num_samples=self.num_coarse_samples,
-                    near=near,
-                    far=far,
+                    # near=near,
+                    # far=far,
+                    near=near_insphere,
+                    far=far_insphere,
                     randomized=randomized,
                     lindisp=self.lindisp,
                     in_sphere=True,
@@ -386,6 +394,10 @@ class LitNeRFPP_CO_GP(LitModel):
         rendered_results = self.model(
             batch, self.randomized, self.white_bkgd, self.near, self.far
         )
+
+        obj_rgb_coarse = rendered_results[0][3]
+        obj_rgb_fine = rendered_results[1][3]
+
         rgb_coarse = rendered_results[0][0]
         rgb_fine = rendered_results[1][0]
         target = batch["target"]
@@ -393,6 +405,20 @@ class LitNeRFPP_CO_GP(LitModel):
         loss0 = helper.img2mse(rgb_coarse, target)
         loss1 = helper.img2mse(rgb_fine, target)
         loss = loss1 + loss0
+
+        mask = batch["instance_mask"].view(-1, 1).repeat(1, 3)
+        loss2 = helper.img2mse(obj_rgb_coarse[mask], target[mask])
+        loss3 = helper.img2mse(obj_rgb_fine[mask], target[mask])
+        masked_rgb_loss = (loss2 + loss3)*0.1
+        self.log("train/masked_rgb_loss", masked_rgb_loss, on_step=True)
+        loss += masked_rgb_loss
+
+        #opacity loss
+        opacity_loss = self.opacity_loss(
+                rendered_results, batch["instance_mask"].view(-1)
+            )     
+        self.log("train/opacity_loss", opacity_loss, on_step=True)
+        loss += opacity_loss
 
         psnr0 = helper.mse2psnr(loss0)
         psnr1 = helper.mse2psnr(loss1)
@@ -443,6 +469,9 @@ class LitNeRFPP_CO_GP(LitModel):
     #     ret["rgb"] = rgb_fine
     #     return ret
 
+    def on_validation_start(self):
+        self.random_batch = np.random.randint(3, size=1)[0]
+
     def validation_step(self, batch, batch_idx):
         for k,v in batch.items():
             batch[k] = v.squeeze()
@@ -454,15 +483,16 @@ class LitNeRFPP_CO_GP(LitModel):
         self.model.encode(batch["src_imgs"], batch["src_poses"], batch["src_focal"], batch["src_c"])
         W,H = self.hparams.img_wh
         ret = self.render_rays(batch)
-        # rank = dist.get_rank()
-        rank =0
+        rank = dist.get_rank()
+        # rank =0
         if rank==0:
-            grid_img = visualize_val_fb_bg_rgb_opacity(
-                (W,H), batch, ret
-            )
-            self.logger.experiment.log({
-                "val/GT_pred rgb": wandb.Image(grid_img)
-            })
+            if batch_idx == self.random_batch:
+                grid_img = visualize_val_fb_bg_rgb_opacity(
+                    (W,H), batch, ret
+                )
+                self.logger.experiment.log({
+                    "val/GT_pred rgb": wandb.Image(grid_img)
+                })
 
     def test_step(self, batch, batch_idx):
         for k,v in batch.items():
@@ -570,3 +600,21 @@ class LitNeRFPP_CO_GP(LitModel):
             write_stats(result_path, psnr, ssim, lpips)
 
         return psnr, ssim, lpips
+
+    def opacity_loss(self, rendered_results, instance_mask):
+        opacity_lambda = 0.1
+        criterion = nn.MSELoss(reduction="none")
+        loss = (
+            criterion(
+                torch.clamp(rendered_results[0][6], 0, 1),
+                instance_mask.float(),
+            )
+        ).mean()
+        loss += (
+            criterion(
+                torch.clamp(rendered_results[1][6], 0, 1),
+                instance_mask.float(),
+            )
+        ).mean()  
+        #
+        return loss*opacity_lambda

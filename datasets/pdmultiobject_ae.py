@@ -68,7 +68,7 @@ class PDMultiObject_AE(Dataset):
         # if self.split =='val':
         #     self.ids = self.ids[:10]
 
-        self.samples_per_epoch = 7000 * len(self.ids)
+        self.samples_per_epoch = 7000
         self.model_type = model_type
         #for object centric
         # self.near = 2.0
