@@ -155,8 +155,7 @@ class NeRFPP_GP(nn.Module):
     def encode(self, images, poses, focal, c):
         self.encoder(images, poses, focal, c)
 
-    def forward(self, rays, randomized, white_bkgd, near, far):
-
+    def forward(self, rays, randomized, white_bkgd, near, far, is_train):
         ret = []
         near = torch.full_like(rays["rays_o"][..., -1:], 1e-4)
         far = helper.intersect_sphere(rays["rays_o"], rays["rays_d"])
@@ -173,11 +172,14 @@ class NeRFPP_GP(nn.Module):
                     lindisp=self.lindisp,
                     in_sphere=True,
                 )
+                
                 near_insphere = near.clone().detach()
                 far_insphere = far.clone().detach()
                 
-                near_insphere[rays["instance_mask"]] = torch.zeros_like(near_insphere[rays["instance_mask"]])
-                far_insphere[rays["instance_mask"]] = torch.zeros_like(far_insphere[rays["instance_mask"]])
+                #supress the rays for near background MLP where bounding boxes esists
+                if is_train:
+                    near_insphere[rays["instance_mask"]] = torch.zeros_like(near_insphere[rays["instance_mask"]])
+                    far_insphere[rays["instance_mask"]] = torch.zeros_like(far_insphere[rays["instance_mask"]])
 
                 fg_t_vals, fg_samples = helper.sample_along_rays(
                     rays_o=rays["rays_o"],
@@ -440,9 +442,11 @@ class LitNeRFPP_CO_GP(LitModel):
                 elif k =='radii':
                     batch_chunk[k] = v[:, i : i + self.hparams.chunk]
                 else:
-                    batch_chunk[k] = v[i : i + self.hparams.chunk]                       
+                    batch_chunk[k] = v[i : i + self.hparams.chunk]   
+
+            # do not suppress rays for near background mlp in validation since we don't have masks in inference time                 
             rendered_results_chunk = self.model(
-                batch_chunk, False, self.white_bkgd, self.near, self.far
+                batch_chunk, False, self.white_bkgd, self.near, self.far, is_train=False
             )
             #here 1 denotes fine
             ret["comp_rgb"]+=[rendered_results_chunk[1][0]]
