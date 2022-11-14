@@ -155,7 +155,7 @@ class NeRFPP_GP(nn.Module):
     def encode(self, images, poses, focal, c):
         self.encoder(images, poses, focal, c)
 
-    def forward(self, rays, randomized, white_bkgd, near, far, is_train):
+    def forward(self, rays, randomized, white_bkgd, near, far, is_train=True):
         ret = []
         near = torch.full_like(rays["rays_o"][..., -1:], 1e-4)
         far = helper.intersect_sphere(rays["rays_o"], rays["rays_d"])
@@ -474,7 +474,7 @@ class LitNeRFPP_CO_GP(LitModel):
     #     return ret
 
     def on_validation_start(self):
-        self.random_batch = np.random.randint(3, size=1)[0]
+        self.random_batch = np.random.randint(5, size=1)[0]
 
     def validation_step(self, batch, batch_idx):
         for k,v in batch.items():
