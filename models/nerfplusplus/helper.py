@@ -287,6 +287,10 @@ def sample_rays_in_bbox(RTs, rays_o, view_dirs):
     bbox_mask = (all_near !=0) & (all_far!=0)
     return all_near, all_far, bbox_mask
 
+def get_learning_rate(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
+
 
 def depth2pts_outside(rays_o, rays_d, depth):
     """Compute the points along the ray that are outside of the unit sphere.

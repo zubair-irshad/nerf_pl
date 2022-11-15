@@ -159,7 +159,13 @@ class NeRFPP_GP(nn.Module):
         ret = []
         near = torch.full_like(rays["rays_o"][..., -1:], 1e-4)
         far = helper.intersect_sphere(rays["rays_o"], rays["rays_d"])
-        near_obj, far_obj = rays["near_obj"], rays["far_obj"]
+
+        #Supress the near_obj far_obj to only keep ones inside the bounding box
+        # near_obj, far_obj = rays["near_obj"], rays["far_obj"]
+
+        #Do not Supress the near_obj far_obj to only keep ones inside the bounding box but rather keep all
+        near_obj = near
+        far_obj = far
         for i_level in range(self.num_levels):
             if i_level == 0:
                 obj_t_vals, obj_samples = helper.sample_along_rays(
@@ -173,8 +179,8 @@ class NeRFPP_GP(nn.Module):
                     in_sphere=True,
                 )
                 
-                near_insphere = near.clone().detach()
-                far_insphere = far.clone().detach()
+                near_insphere = near
+                far_insphere = far
                 
                 #supress the rays for near background MLP where bounding boxes esists
                 if is_train:
@@ -347,6 +353,7 @@ class LitNeRFPP_CO_GP(LitModel):
         lr_delay_steps: int = 2500,
         lr_delay_mult: float = 0.01,
         randomized: bool = True,
+        grad_max_norm: float = 0.25
     ):
         for name, value in vars().items():
             if name not in ["self", "__class__", "hparams"]:
@@ -411,8 +418,10 @@ class LitNeRFPP_CO_GP(LitModel):
         mask = batch["instance_mask"].view(-1, 1).repeat(1, 3)
         loss2 = helper.img2mse(obj_rgb_coarse[mask], target[mask])
         loss3 = helper.img2mse(obj_rgb_fine[mask], target[mask])
-        masked_rgb_loss = (loss2 + loss3)*0.1
+        masked_rgb_loss = (loss2 + loss3)
         self.log("train/masked_rgb_loss", masked_rgb_loss, on_step=True)
+        # loss += masked_rgb_loss
+
         loss += masked_rgb_loss
 
         #opacity loss
@@ -428,6 +437,7 @@ class LitNeRFPP_CO_GP(LitModel):
         self.log("train/psnr1", psnr1, on_step=True, prog_bar=True, logger=True)
         self.log("train/psnr0", psnr0, on_step=True, prog_bar=True, logger=True)
         self.log("train/loss", loss, on_step=True)
+        self.log("train/lr", helper.get_learning_rate(self.optimizers()))
 
         return loss
 
@@ -538,6 +548,9 @@ class LitNeRFPP_CO_GP(LitModel):
 
         for pg in optimizer.param_groups:
             pg["lr"] = new_lr
+
+        # if self.grad_max_norm > 0:
+        #     nn.utils.clip_grad_norm_(self.parameters(), self.grad_max_norm)
 
         optimizer.step(closure=optimizer_closure)
 

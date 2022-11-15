@@ -8,6 +8,7 @@ from torchvision import transforms as T
 from .ray_utils import *
 import random
 from models.nerfplusplus.helper import sample_rays_in_bbox
+import cv2
 
 # img_transform = T.Compose([T.Resize((128, 128)), T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 img_transform = T.Compose([T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -111,10 +112,11 @@ class PDMultiObject_AE(Dataset):
 
         #Get masks
         seg_mask = Image.open(os.path.join(base_dir, 'semantic_segmentation_2d', img_name))
-        seg_mask = seg_mask.resize((w,h), Image.LANCZOS)
+        # seg_mask = seg_mask.resize((w,h), Image.LANCZOS)
         seg_mask =  np.array(seg_mask)
         seg_mask[seg_mask!=5] =0
         seg_mask[seg_mask==5] =1
+        seg_mask = cv2.resize(seg_mask, (w,h), interpolation =cv2.INTER_NEAREST)
         instance_mask = seg_mask >0
 
         directions = get_ray_directions(h, w, focal) # (h, w, 3)

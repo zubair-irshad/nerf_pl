@@ -41,8 +41,8 @@ def main(hparams):
         save_top_k=5,
         mode="max",
         save_last=True,
-        # every_n_epochs=10,
-        every_n_epochs=50,
+        every_n_epochs=10,
+        # every_n_epochs=50,
     )
 
     pbar = TQDMProgressBar(refresh_rate=1)
@@ -59,7 +59,7 @@ def main(hparams):
                     num_sanity_val_steps=1,
                     benchmark=True,
                     check_val_every_n_epoch=1,
-                    limit_val_batches=5,
+                    limit_val_batches=1, # for single scene scenario
                     profiler="simple" if hparams.num_gpus==1 else None,
                     strategy=DDPPlugin(find_unused_parameters=True) if hparams.num_gpus>1 else None)
 
