@@ -34,11 +34,13 @@ class NeRFPPMLP(nn.Module):
         min_deg_point,
         max_deg_point,
         deg_view,
-        netdepth: int = 8,
+        # netdepth: int = 8,
+        netdepth: int = 4,
         netwidth: int = 256,
         netdepth_condition: int = 1,
         netwidth_condition: int = 64,
-        skip_layer: int = 4,
+        # skip_layer: int = 4,
+        skip_layer: int = 2,
         input_ch: int = 3,
         input_ch_view: int = 3,
         num_rgb_channels: int = 3,
@@ -353,7 +355,7 @@ class LitNeRFPP_CO_GP(LitModel):
         lr_delay_steps: int = 2500,
         lr_delay_mult: float = 0.01,
         randomized: bool = True,
-        grad_max_norm: float = 0.25
+        grad_max_norm: float = 0.05
     ):
         for name, value in vars().items():
             if name not in ["self", "__class__", "hparams"]:
@@ -549,8 +551,8 @@ class LitNeRFPP_CO_GP(LitModel):
         for pg in optimizer.param_groups:
             pg["lr"] = new_lr
 
-        # if self.grad_max_norm > 0:
-        #     nn.utils.clip_grad_norm_(self.parameters(), self.grad_max_norm)
+        if self.grad_max_norm > 0:
+            nn.utils.clip_grad_norm_(self.parameters(), self.grad_max_norm)
 
         optimizer.step(closure=optimizer_closure)
 
