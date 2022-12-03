@@ -69,7 +69,11 @@ class PDMultiObject_AE(Dataset):
         # if self.split =='val':
         #     self.ids = self.ids[:10]
 
-        self.samples_per_epoch = 7000
+        #for multi scene training
+        # self.samples_per_epoch = 7000
+        # for single scene training
+        self.samples_per_epoch = 70
+        
         self.model_type = model_type
         #for object centric
         # self.near = 2.0

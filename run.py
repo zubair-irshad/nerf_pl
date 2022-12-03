@@ -27,7 +27,7 @@ from models.nerfplusplus.model_co_triplane import LitNeRFPP_CO_TP
 
 
 def main(hparams):
-    system = LitPixelNeRF(hparams=hparams)
+    system = LitNeRFPP_CO_TP(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
