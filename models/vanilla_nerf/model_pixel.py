@@ -140,7 +140,7 @@ class PixelNeRF(nn.Module):
         use_viewdirs: bool = True,
         noise_std: float = 0.0,
         lindisp: bool = False,
-        num_src_views: int = 3
+        num_src_views: int = 5
     ):
         for name, value in vars().items():
             if name not in ["self", "__class__"]:
