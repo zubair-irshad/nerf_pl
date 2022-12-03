@@ -362,7 +362,7 @@ class LitNeRFPP_CO_TP(LitModel):
                 print(name, value)
                 setattr(self, name, value)
         self.hparams.update(vars(hparams))
-        super(LitNeRFPP_CO_GP, self).__init__()
+        super(LitNeRFPP_CO_TP, self).__init__()
         self.model = NeRFPP_TP()
 
     def setup(self, stage: Optional[str] = None) -> None:
