@@ -20,7 +20,7 @@ from models.refnerf.model_voxels import LitVoxelGenerator
 from models.refnerf.model_conditional import LitRefNeRFConditional
 from models.refnerf.model_conditional_ae import LitRefNeRFConditionalAE
 from models.nerfplusplus.model_ae import LitNeRFPP_AE
-# from models.nerfplusplus.model_groundplan import LitNeRFPP_GP
+from models.nerfplusplus.model_groundplan import LitNeRFPP_GP
 from models.nerfplusplus.model_triplane import LitNeRFPP_TP
 from models.nerfplusplus.model_co_groundplan import LitNeRFPP_CO_GP
 from models.nerfplusplus.model_co_triplane import LitNeRFPP_CO_TP

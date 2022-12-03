@@ -163,11 +163,16 @@ class NeRFPP_GP(nn.Module):
         far = helper.intersect_sphere(rays["rays_o"], rays["rays_d"])
 
         #Supress the near_obj far_obj to only keep ones inside the bounding box
-        # near_obj, far_obj = rays["near_obj"], rays["far_obj"]
+        near_obj, far_obj = rays["near_obj"], rays["far_obj"]
 
         #Do not Supress the near_obj far_obj to only keep ones inside the bounding box but rather keep all
-        near_obj = near
-        far_obj = far
+        # near_obj = near
+        # far_obj = far
+
+        # Suppress rays outside of instance masks of objects for object MLP
+        # near_obj[~rays["instance_mask"]] = torch.zeros_like(near_obj[~rays["instance_mask"]])
+        # far_obj[~rays["instance_mask"]] = torch.zeros_like(far_obj[~rays["instance_mask"]])
+        
         for i_level in range(self.num_levels):
             if i_level == 0:
                 obj_t_vals, obj_samples = helper.sample_along_rays(
@@ -420,7 +425,7 @@ class LitNeRFPP_CO_GP(LitModel):
         mask = batch["instance_mask"].view(-1, 1).repeat(1, 3)
         loss2 = helper.img2mse(obj_rgb_coarse[mask], target[mask])
         loss3 = helper.img2mse(obj_rgb_fine[mask], target[mask])
-        masked_rgb_loss = (loss2 + loss3)
+        masked_rgb_loss = (loss2 + loss3)*0.1
         self.log("train/masked_rgb_loss", masked_rgb_loss, on_step=True)
         # loss += masked_rgb_loss
 
@@ -639,4 +644,5 @@ class LitNeRFPP_CO_GP(LitModel):
             )
         ).mean()  
         #
+        # return loss*opacity_lambda
         return loss*opacity_lambda
