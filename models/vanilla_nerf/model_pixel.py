@@ -208,7 +208,7 @@ class PixelNeRF(nn.Module):
                 self.max_deg_point,
             )
 
-            viewdirs = world2camera_viewdirs(rays["viewdirs"].unsqueeze(0), rays["src_poses"], 3)
+            viewdirs = world2camera_viewdirs(rays["viewdirs"].unsqueeze(0), rays["src_poses"], self.num_src_views)
             viewdirs_enc = helper.pos_enc(viewdirs, 0, self.deg_view)
 
             viewdirs_enc = torch.tile(viewdirs_enc[:, None, :], (1, N_samples, 1)).reshape(
