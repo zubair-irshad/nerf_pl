@@ -165,9 +165,13 @@ class NeRFPP_TP(nn.Module):
         #Supress the near_obj far_obj to only keep ones inside the bounding box
         # near_obj, far_obj = rays["near_obj"], rays["far_obj"]
 
+        #Supress the near_obj far_obj to only keep ones inside the bounding box
+        near_obj, far_obj = rays["near_obj"], rays["far_obj"]
+
         #Do not Supress the near_obj far_obj to only keep ones inside the bounding box but rather keep all
-        near_obj = near
-        far_obj = far
+        # near_obj = near
+        # far_obj = far
+
         for i_level in range(self.num_levels):
             if i_level == 0:
                 obj_t_vals, obj_samples = helper.sample_along_rays(
