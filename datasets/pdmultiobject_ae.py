@@ -70,9 +70,9 @@ class PDMultiObject_AE(Dataset):
         #     self.ids = self.ids[:10]
 
         #for multi scene training
-        # self.samples_per_epoch = 7000
+        self.samples_per_epoch = 7000
         # for single scene training
-        self.samples_per_epoch = 70
+        # self.samples_per_epoch = 70
         
         self.model_type = model_type
         #for object centric

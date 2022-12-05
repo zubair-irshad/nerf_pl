@@ -502,8 +502,8 @@ class LitNeRFPP_CO_TP(LitModel):
         self.model.encode(batch["src_imgs"], batch["src_poses"], batch["src_focal"], batch["src_c"])
         W,H = self.hparams.img_wh
         ret = self.render_rays(batch)
-        # rank = dist.get_rank()
-        rank =0
+        rank = dist.get_rank()
+        # rank =0
         if rank==0:
             if batch_idx == self.random_batch:
                 grid_img = visualize_val_fb_bg_rgb_opacity(
