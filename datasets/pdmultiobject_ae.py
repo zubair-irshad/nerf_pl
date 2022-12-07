@@ -47,9 +47,15 @@ def read_poses(pose_dir_train, pose_dir_val, img_files, output_boxes = False):
     # Get bounding boxes for object MLP training only
     if output_boxes:
         all_boxes = []
-        for _,v in data['bbox_dimensions'].items():
+        all_translations= []
+        all_rotations = []
+        for k,v in data['bbox_dimensions'].items():
                 bbox = np.array(v)
                 all_boxes.append(bbox*pose_scale_factor)
+
+                # all_rotations.append(data["obj_rotations"][k])
+                # translation = (np.array(data['obj_translations'][k])- obj_location)*pose_scale_factor 
+                # all_translations.append(translation)
         all_translations = (np.array(data['obj_translations'])- obj_location)*pose_scale_factor
         all_rotations = data["obj_rotations"]
         RTs = {'R': all_rotations, 'T': all_translations, 's': all_boxes}

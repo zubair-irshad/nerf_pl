@@ -1,6 +1,7 @@
 
 from opt import get_opts
 import wandb
+import torch
 # pytorch-lightning
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
@@ -25,6 +26,7 @@ from models.nerfplusplus.model_triplane import LitNeRFPP_TP
 from models.nerfplusplus.model_co_groundplan import LitNeRFPP_CO_GP
 from models.nerfplusplus.model_co_triplane import LitNeRFPP_CO_TP
 
+torch.autograd.set_detect_anomaly(True)
 
 def main(hparams):
     system = LitNeRFPP_CO_TP(hparams=hparams)
