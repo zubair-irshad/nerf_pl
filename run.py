@@ -26,8 +26,6 @@ from models.nerfplusplus.model_triplane import LitNeRFPP_TP
 from models.nerfplusplus.model_co_groundplan import LitNeRFPP_CO_GP
 from models.nerfplusplus.model_co_triplane import LitNeRFPP_CO_TP
 
-torch.autograd.set_detect_anomaly(True)
-
 def main(hparams):
     system = LitNeRFPP_CO_TP(hparams=hparams)
 
@@ -60,6 +58,7 @@ def main(hparams):
                     accelerator='auto',
                     devices=hparams.num_gpus,
                     num_sanity_val_steps=1,
+                    detect_anomaly=True,
                     benchmark=True,
                     check_val_every_n_epoch=1,
                     limit_val_batches=1, # for single scene scenario
