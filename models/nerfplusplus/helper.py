@@ -185,7 +185,7 @@ def intersect_sphere(rays_o, rays_d):
     rays_d_cos = 1.0 / torch.norm(rays_d, dim=-1, keepdim=True)
     p_norm_sq = torch.sum(p * p, dim=-1, keepdim=True)
     check_pos = 1.0 - p_norm_sq
-    assert check_pos >0, "1.0 - p_norm_sq should be greater than 0"
+    assert torch.all(check_pos >= 0), "1.0 - p_norm_sq should be greater than 0"
     d2 = torch.sqrt(1.0 - p_norm_sq) * rays_d_cos
     return d1 + d2
 
@@ -319,7 +319,7 @@ def depth2pts_outside(rays_o, rays_d, depth):
     rays_d_cos = 1.0 / torch.norm(rays_d, dim=-1, keepdim=True)
 
     check_pos = 1.0 - p_mid_norm * p_mid_norm
-    assert check_pos >0, "1.0 - p_mid_norm * p_mid_norm should be greater than 0"
+    assert torch.all(check_pos >= 0), "1.0 - p_mid_norm * p_mid_norm should be greater than 0"
 
     d2 = torch.sqrt(1.0 - p_mid_norm * p_mid_norm) * rays_d_cos
     p_sphere = rays_o + (d1 + d2) * rays_d
