@@ -27,6 +27,12 @@ from models.nerfplusplus.encoder_tp import GridEncoder
 # from models.nerfplusplus.encoder_gp import GridEncoder
 import wandb
 
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+np.random.seed(0)   
+random.seed(0)
+
 # @gin.configurable()
 class NeRFPPMLP(nn.Module):
     def __init__(
