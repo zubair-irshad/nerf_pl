@@ -199,15 +199,16 @@ class GridEncoder(nn.Module):
                                                 NV).cuda()  # (SB*NV, NC, 3) NC: number of grid cells
 
         # Transforming world points to camera view
-        self.camera_grids = world2camera(self.world_grids, poses)
+        # self.camera_grids = world2camera(self.world_grids, poses)
+        camera_grids = world2camera(self.world_grids, poses)
 
         # Compute mask for points outside the frustrum
         # mask = self.camera_grids[..., :, -1] < 1e-3
 
         # Fix as proposed in https://github.com/apchenstu/mvsnerf/issues/12#issuecomment-1171424369
-        mask = self.camera_grids[..., :, -1].abs() < 1e-3
-        print("self.camera_grids, mask", self.camera_grids.shape, mask.shape)
-        self.camera_grids[mask, -1] = 1e-3
+        mask = camera_grids[..., :, -1].abs() < 1e-3
+        print("self.camera_grids, mask", camera_grids.shape, mask.shape)
+        camera_grids[mask, -1] = 1e-3
 
         camera_pts_dir = self.world_grids - poses[:, None, :3, -1]
         camera_pts_dir_norm = torch.norm(camera_pts_dir + 1e-9, dim=-1)
@@ -215,7 +216,7 @@ class GridEncoder(nn.Module):
         camera_pts_dir = camera_pts_dir * mask[:, :, None]
 
         # Projecting points in camera coordinates on the image plane
-        uv = projection(self.camera_grids, focal, c)  # [f, -f]
+        uv = projection(camera_grids, focal, c)  # [f, -f]
 
         latent = self.spatial_encoder.index(
             uv, None, torch.Tensor([W, H]).cuda()
@@ -223,7 +224,7 @@ class GridEncoder(nn.Module):
         _, L, _ = latent.shape  # (NV, L, grid_size**3)
         latent = latent * mask[:, None, :]
         latent = torch.cat([latent,
-                            self.camera_grids.permute(0, -1, 1),
+                            camera_grids.permute(0, -1, 1),
                             camera_pts_dir.permute(0, -1, 1)], 1)
         latent = latent.reshape(NV, L+3+3,
                                 self.grid_size[0]//self.sfactor * self.grid_size[1]//self.sfactor * self.grid_size[2]//self.sfactor).permute(0, 2, 1)  # Input to the linear layer # (SB*T*NV, grid_size**3, L+1)
