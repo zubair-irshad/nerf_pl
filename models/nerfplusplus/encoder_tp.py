@@ -206,6 +206,7 @@ class GridEncoder(nn.Module):
 
         # Fix as proposed in https://github.com/apchenstu/mvsnerf/issues/12#issuecomment-1171424369
         mask = self.camera_grids[..., :, -1].abs() < 1e-3
+        print("self.camera_grids, mask", self.camera_grids.shape, mask.shape)
         self.camera_grids[mask, -1] = 1e-3
 
         camera_pts_dir = self.world_grids - poses[:, None, :3, -1]
