@@ -207,8 +207,7 @@ class GridEncoder(nn.Module):
 
         # Fix as proposed in https://github.com/apchenstu/mvsnerf/issues/12#issuecomment-1171424369
         mask = camera_grids[..., :, -1].abs() < 1e-3
-        print("self.camera_grids, mask", camera_grids.shape, mask.shape)
-        camera_grids[mask, -1] = 1e-3
+        camera_grids[mask] = 1e-3
 
         camera_pts_dir = self.world_grids - poses[:, None, :3, -1]
         camera_pts_dir_norm = torch.norm(camera_pts_dir + 1e-9, dim=-1)
