@@ -190,12 +190,12 @@ class GridEncoder(nn.Module):
         _, L, _ = latent.shape  # (NV, L, grid_size**3)
         latent = latent * mask[:, None, :]
         # get mask for all views
-        mask_allviews = torch.absolute(latent.detach().reshape(NV, L,
-                                                               self.grid_size[0]//self.sfactor,
-                                                               self.grid_size[1],
-                                                               self.grid_size[2]//self.sfactor) != 0).sum(1) > 0  # (SB*T*NV, grid_size, grid_size, grid_size)
-        # get a top down view of the mask --> (SB*T*NV, G_x, G_z)
-        mask_allviews = torch.sum(mask_allviews, -2) > 0
+        # mask_allviews = torch.absolute(latent.detach().reshape(NV, L,
+        #                                                        self.grid_size[0]//self.sfactor,
+        #                                                        self.grid_size[1],
+        #                                                        self.grid_size[2]//self.sfactor) != 0).sum(1) > 0  # (SB*T*NV, grid_size, grid_size, grid_size)
+        # # get a top down view of the mask --> (SB*T*NV, G_x, G_z)
+        # mask_allviews = torch.sum(mask_allviews, -2) > 0
         latent = torch.cat([latent,
                             self.camera_grids.permute(0, -1, 1),
                             camera_pts_dir.permute(0, -1, 1)], 1)

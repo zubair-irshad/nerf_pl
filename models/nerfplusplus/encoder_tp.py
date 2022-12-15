@@ -202,7 +202,12 @@ class GridEncoder(nn.Module):
         self.camera_grids = world2camera(self.world_grids, poses)
 
         # Compute mask for points outside the frustrum
-        mask = self.camera_grids[..., :, -1] < 1e-3
+        # mask = self.camera_grids[..., :, -1] < 1e-3
+
+        # Fix as proposed in https://github.com/apchenstu/mvsnerf/issues/12#issuecomment-1171424369
+        mask = self.camera_grids[..., :, -1].abs() < 1e-3
+        self.camera_grids[mask, -1] = 1e-3
+
         camera_pts_dir = self.world_grids - poses[:, None, :3, -1]
         camera_pts_dir_norm = torch.norm(camera_pts_dir + 1e-9, dim=-1)
         camera_pts_dir = camera_pts_dir/camera_pts_dir_norm[:, :, None]

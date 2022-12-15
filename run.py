@@ -26,6 +26,13 @@ from models.nerfplusplus.model_triplane import LitNeRFPP_TP
 from models.nerfplusplus.model_co_groundplan import LitNeRFPP_CO_GP
 from models.nerfplusplus.model_co_triplane import LitNeRFPP_CO_TP
 
+# For debugging
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+np.random.seed(0)   
+random.seed(0)
+
 def main(hparams):
     system = LitNeRFPP_CO_TP(hparams=hparams)
 
