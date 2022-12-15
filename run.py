@@ -10,6 +10,7 @@ from pytorch_lightning.loggers import WandbLogger
 wandb.login(key = '996ee27de02ee214ded37d491317d5a0567f6dc8')
 wandb_logger = WandbLogger()
 import numpy as np
+import random
 #baselines models
 from models.nerfplusplus.model import LitNeRFPP
 from models.vanilla_nerf.model_pixel import LitPixelNeRF

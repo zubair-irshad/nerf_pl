@@ -26,7 +26,7 @@ from models.nerfplusplus.util import *
 from models.nerfplusplus.encoder_tp import GridEncoder
 # from models.nerfplusplus.encoder_gp import GridEncoder
 import wandb
-
+import random
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
