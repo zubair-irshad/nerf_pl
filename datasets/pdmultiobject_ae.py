@@ -54,13 +54,13 @@ def read_poses(pose_dir_train, pose_dir_val, img_files, output_boxes = False):
                 all_boxes.append(bbox*pose_scale_factor)
                 
                 #New scene 200 uncomment here
-                all_rotations.append(data["obj_rotations"][k])
-                translation = (np.array(data['obj_translations'][k])- obj_location)*pose_scale_factor 
-                all_translations.append(translation)
+                # all_rotations.append(data["obj_rotations"][k])
+                # translation = (np.array(data['obj_translations'][k])- obj_location)*pose_scale_factor 
+                # all_translations.append(translation)
 
         # Old scenes uncomment here
-        # all_translations = (np.array(data['obj_translations'])- obj_location)*pose_scale_factor
-        # all_rotations = data["obj_rotations"]
+        all_translations = (np.array(data['obj_translations'])- obj_location)*pose_scale_factor
+        all_rotations = data["obj_rotations"]
         
         RTs = {'R': all_rotations, 'T': all_translations, 's': all_boxes}
         return all_c2w_train, all_c2w_test, focal, img_wh, RTs
@@ -167,7 +167,7 @@ class PDMultiObject_AE(Dataset):
             focals = list()
             all_c = list()
             NV = 99
-            src_views = 5
+            src_views = 3
             ray_batch_size = 1024
         
             for train_image_id in range(0, NV):
@@ -268,7 +268,7 @@ class PDMultiObject_AE(Dataset):
             focals = list()
             all_c = list()
             NV = 99
-            src_views = 5
+            src_views = 3
             for train_image_id in range(0, NV):
                 cam_rays, cam_view_dirs, cam_rays_d, img, instance_mask, camera_radii, c2w, f, c =  self.read_data(instance_dir, train_image_id)
                 img = Image.fromarray(np.uint8(img))
