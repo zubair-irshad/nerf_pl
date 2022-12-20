@@ -92,13 +92,20 @@ class GridEncoder(nn.Module):
         # To encode latent from spatial encoder with camera depth
         self.depth_fc = DepthPillarEncoder(inp_ch=self.spatial_encoder.latent_size + 3 + 3, LS=LS)
 
-        self.pillar_aggregator = nn.Sequential(nn.Linear(LS + 1, LS),
+        self.pillar_aggregator_x = nn.Sequential(nn.Linear(LS + 1, LS),
+                                                nn.ReLU(inplace=True),
+                                               nn.Linear(LS, 1))
+
+        self.pillar_aggregator_y = nn.Sequential(nn.Linear(LS + 1, LS),
+                                                nn.ReLU(inplace=True),
+                                               nn.Linear(LS, 1))
+        self.pillar_aggregator_z = nn.Sequential(nn.Linear(LS + 1, LS),
                                                 nn.ReLU(inplace=True),
                                                nn.Linear(LS, 1))
 
 
         # Creates the static grid using the per-scene floorplans.
-        self.floorplan_convnet = nn.Sequential(nn.ReflectionPad2d(1),
+        self.floorplan_convnet_x = nn.Sequential(nn.ReflectionPad2d(1),
                                                             nn.Conv2d(LS, LS, 3, 1, 0),
                                                             nn.ReLU(inplace=True),
                                                             nn.Conv2d(LS, LS, 3, 1, 1, padding_mode="reflect"),
@@ -110,8 +117,37 @@ class GridEncoder(nn.Module):
                                                             nn.Conv2d(LS*2, LS*1, 3, 1, 1, padding_mode="reflect"),
                                                             )
 
-        self.floorplan_convnet.apply(init_weights_kaiming)
-        self.pillar_aggregator.apply(init_weights_kaiming)
+        self.floorplan_convnet_y = nn.Sequential(nn.ReflectionPad2d(1),
+                                                            nn.Conv2d(LS, LS, 3, 1, 0),
+                                                            nn.ReLU(inplace=True),
+                                                            nn.Conv2d(LS, LS, 3, 1, 1, padding_mode="reflect"),
+                                                            nn.ReLU(inplace=True),
+                                                            nn.UpsamplingBilinear2d(scale_factor=2),
+                                                            nn.Conv2d(LS, LS*2, 3, 1, 1, padding_mode="reflect"),
+                                                            nn.ReLU(inplace=True),
+                                                            nn.UpsamplingBilinear2d(scale_factor=2),
+                                                            nn.Conv2d(LS*2, LS*1, 3, 1, 1, padding_mode="reflect"),
+                                                            )
+
+        self.floorplan_convnet_z = nn.Sequential(nn.ReflectionPad2d(1),
+                                                            nn.Conv2d(LS, LS, 3, 1, 0),
+                                                            nn.ReLU(inplace=True),
+                                                            nn.Conv2d(LS, LS, 3, 1, 1, padding_mode="reflect"),
+                                                            nn.ReLU(inplace=True),
+                                                            nn.UpsamplingBilinear2d(scale_factor=2),
+                                                            nn.Conv2d(LS, LS*2, 3, 1, 1, padding_mode="reflect"),
+                                                            nn.ReLU(inplace=True),
+                                                            nn.UpsamplingBilinear2d(scale_factor=2),
+                                                            nn.Conv2d(LS*2, LS*1, 3, 1, 1, padding_mode="reflect"),
+                                                            )
+
+        self.floorplan_convnet_x.apply(init_weights_kaiming)
+        self.floorplan_convnet_y.apply(init_weights_kaiming)
+        self.floorplan_convnet_z.apply(init_weights_kaiming)
+
+        self.pillar_aggregator_x.apply(init_weights_kaiming)
+        self.pillar_aggregator_y.apply(init_weights_kaiming)
+        self.pillar_aggregator_z.apply(init_weights_kaiming)
     
     def contract_pts(self, pts, radius):
         mask = torch.norm(pts, dim=-1).unsqueeze(-1) > radius
@@ -235,30 +271,41 @@ class GridEncoder(nn.Module):
 
         latent = latent.mean(1)  # (SB * T, NC, L) average along the number of views
         
-        latent_inp_x = torch.cat([latent, self.world_grids.reshape(1, NV, self.grid_size[0]//self.sfactor,
+        # latent_inp_x = torch.cat([latent, self.world_grids.reshape(1, NV, self.grid_size[0]//self.sfactor,
+        #                                                   self.grid_size[1]//self.sfactor,
+        #                                                   self.grid_size[2]//self.sfactor, 3)[:, 0, ..., 0:1]], -1)
+        # latent_inp_y = torch.cat([latent, self.world_grids.reshape(1, NV, self.grid_size[0]//self.sfactor,
+        #                                                   self.grid_size[1]//self.sfactor,
+        #                                                   self.grid_size[2]//self.sfactor, 3)[:, 0, ..., 1:2]], -1)
+        # latent_inp_z = torch.cat([latent, self.world_grids.reshape(1, NV, self.grid_size[0]//self.sfactor,
+        #                                                   self.grid_size[1]//self.sfactor,
+        #                                                   self.grid_size[2]//self.sfactor, 3)[:, 0, ..., 2:3]], -1)
+
+        latent_inp = torch.cat([latent, self.world_grids.reshape(1, NV, self.grid_size[0]//self.sfactor,
                                                           self.grid_size[1]//self.sfactor,
                                                           self.grid_size[2]//self.sfactor, 3)[:, 0, ..., 0:1]], -1)
-        latent_inp_y = torch.cat([latent, self.world_grids.reshape(1, NV, self.grid_size[0]//self.sfactor,
-                                                          self.grid_size[1]//self.sfactor,
-                                                          self.grid_size[2]//self.sfactor, 3)[:, 0, ..., 1:2]], -1)
-        latent_inp_z = torch.cat([latent, self.world_grids.reshape(1, NV, self.grid_size[0]//self.sfactor,
-                                                          self.grid_size[1]//self.sfactor,
-                                                          self.grid_size[2]//self.sfactor, 3)[:, 0, ..., 2:3]], -1)
 
-        weights_x = torch.softmax(self.pillar_aggregator(latent_inp_x), dim=-2)  # (SB, T, X, Z, Y, 1)
-        weights_y = torch.softmax(self.pillar_aggregator(latent_inp_y), dim=-2)  # (SB, T, X, Z, Y, 1)
-        weights_z = torch.softmax(self.pillar_aggregator(latent_inp_z), dim=-2)  # (SB, T, X, Z, Y, 1)
+        # weights_x = torch.softmax(self.pillar_aggregator(latent_inp_x), dim=-2)  # (SB, T, X, Z, Y, 1)
+        # weights_y = torch.softmax(self.pillar_aggregator(latent_inp_y), dim=-2)  # (SB, T, X, Z, Y, 1)
+        # weights_z = torch.softmax(self.pillar_aggregator(latent_inp_z), dim=-2)  # (SB, T, X, Z, Y, 1)
+
+        weights_x = torch.softmax(self.pillar_aggregator_x(latent_inp), dim=-2)  # (SB, T, X, Z, Y, 1)
+        weights_y = torch.softmax(self.pillar_aggregator_y(latent_inp), dim=-2)  # (SB, T, X, Z, Y, 1)
+        weights_z = torch.softmax(self.pillar_aggregator_z(latent_inp), dim=-2)  # (SB, T, X, Z, Y, 1)
 
         floorplans_yz = (latent * weights_x).sum(-2)  # (SB, T, X, Z, L)
         floorplans_xz = (latent * weights_y).sum(-2)  # (SB, T, X, Z, L)
         floorplans_xy = (latent * weights_z).sum(-2)  # (SB, T, X, Z, L)
 
         grid_yz = floorplans_yz.permute(0, -1, 1, 2) # .reshape(SB, T, L, int(self.grid_size[0]/sfactor), int(self.grid_size[2]/sfactor))
-        self.scene_grid_yz = self.floorplan_convnet(grid_yz)  # (SB*T, L, X, Z)
+        #self.scene_grid_yz = self.floorplan_convnet(grid_yz)  # (SB*T, L, X, Z)
+        self.scene_grid_yz = self.floorplan_convnet_x(grid_yz)  # (SB*T, L, X, Z)
 
         grid_xz = floorplans_xz.permute(0, -1, 1, 2) # .reshape(SB, T, L, int(self.grid_size[0]/sfactor), int(self.grid_size[2]/sfactor))
-        self.scene_grid_xz = self.floorplan_convnet(grid_xz)  # (SB*T, L, X, Z)
+        #self.scene_grid_xz = self.floorplan_convnet(grid_xz)  # (SB*T, L, X, Z)
+        self.scene_grid_xz = self.floorplan_convnet_y(grid_xz)  # (SB*T, L, X, Z)
 
         grid_xy = floorplans_xy.permute(0, -1, 1, 2) # .reshape(SB, T, L, int(self.grid_size[0]/sfactor), int(self.grid_size[2]/sfactor))
-        self.scene_grid_xy = self.floorplan_convnet(grid_xy)  # (SB*T, L, X, Z)
+        #self.scene_grid_xy = self.floorplan_convnet(grid_xy)  # (SB*T, L, X, Z)
+        self.scene_grid_xy = self.floorplan_convnet_z(grid_xy)  # (SB*T, L, X, Z)
         return 0
