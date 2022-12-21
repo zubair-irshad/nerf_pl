@@ -235,8 +235,8 @@ class GridEncoder(nn.Module):
                                                 NV).cuda()  # (SB*NV, NC, 3) NC: number of grid cells
 
         # Transforming world points to camera view
-        # self.camera_grids = world2camera(self.world_grids, poses)
-        camera_grids = world2camera(self.world_grids, poses)
+        self.camera_grids = world2camera(self.world_grids, poses)
+        # camera_grids = world2camera(self.world_grids, poses)
 
         # Compute mask for points outside the frustrum
         mask = self.camera_grids[..., :, -1] < 1e-3
