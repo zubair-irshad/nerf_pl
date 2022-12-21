@@ -251,7 +251,7 @@ class GridEncoder(nn.Module):
         camera_pts_dir = camera_pts_dir * mask[:, :, None]
 
         # Projecting points in camera coordinates on the image plane
-        uv = projection(camera_grids, focal, c)  # [f, -f]
+        uv = projection(self.camera_grids, focal, c)  # [f, -f]
 
         latent = self.spatial_encoder.index(
             uv, None, torch.Tensor([W, H]).cuda()
@@ -259,7 +259,7 @@ class GridEncoder(nn.Module):
         _, L, _ = latent.shape  # (NV, L, grid_size**3)
         latent = latent * mask[:, None, :]
         latent = torch.cat([latent,
-                            camera_grids.permute(0, -1, 1),
+                            self.camera_grids.permute(0, -1, 1),
                             camera_pts_dir.permute(0, -1, 1)], 1)
         latent = latent.reshape(NV, L+3+3,
                                 self.grid_size[0]//self.sfactor * self.grid_size[1]//self.sfactor * self.grid_size[2]//self.sfactor).permute(0, 2, 1)  # Input to the linear layer # (SB*T*NV, grid_size**3, L+1)
