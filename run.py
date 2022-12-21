@@ -35,7 +35,7 @@ np.random.seed(0)
 random.seed(0)
 
 def main(hparams):
-    system = LitNeRFPP_CO_GP(hparams=hparams)
+    system = LitNeRFPP_CO_TP(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
