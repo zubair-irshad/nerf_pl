@@ -54,20 +54,20 @@ def read_poses(pose_dir_train, pose_dir_val, img_files, output_boxes = False):
                 all_boxes.append(bbox*pose_scale_factor)
                 
                 #New scene 200 uncomment here
-                all_rotations.append(data["obj_rotations"][k])
-                translation = (np.array(data['obj_translations'][k])- obj_location)*pose_scale_factor 
-                all_translations.append(translation)
+                # all_rotations.append(data["obj_rotations"][k])
+                # translation = (np.array(data['obj_translations'][k])- obj_location)*pose_scale_factor 
+                # all_translations.append(translation)
 
         # Old scenes uncomment here
-        # all_translations = (np.array(data['obj_translations'])- obj_location)*pose_scale_factor
-        # all_rotations = data["obj_rotations"]
+        all_translations = (np.array(data['obj_translations'])- obj_location)*pose_scale_factor
+        all_rotations = data["obj_rotations"]
         
         RTs = {'R': all_rotations, 'T': all_translations, 's': all_boxes}
         return all_c2w_train, all_c2w_test, focal, img_wh, RTs
     else:
         return all_c2w_train, all_c2w_test, focal, img_wh
 
-class PDMultiObject_AE(Dataset):
+class PDMultiObject_AE_NOCS(Dataset):
     def __init__(self, root_dir, split='train', img_wh=(640, 480), white_back=False, model_type = "Vanilla"):
         self.split = split
         self.img_wh = img_wh
