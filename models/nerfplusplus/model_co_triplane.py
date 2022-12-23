@@ -430,7 +430,7 @@ class LitNeRFPP_CO_TP(LitModel):
         loss = loss1 + loss0
 
         if loss.isnan(): loss=eps
-            else: loss = loss
+        else: loss = loss
 
         mask = batch["instance_mask"].view(-1, 1).repeat(1, 3)
         loss2 = helper.img2mse(obj_rgb_coarse[mask], target[mask])
@@ -438,7 +438,7 @@ class LitNeRFPP_CO_TP(LitModel):
         masked_rgb_loss = (loss2 + loss3)
 
         if masked_rgb_loss.isnan(): masked_rgb_loss=eps
-            else: masked_rgb_loss = masked_rgb_loss
+        else: masked_rgb_loss = masked_rgb_loss
 
 
         self.log("train/masked_rgb_loss", masked_rgb_loss, on_step=True)
@@ -452,7 +452,7 @@ class LitNeRFPP_CO_TP(LitModel):
             )
 
         if opacity_loss.isnan(): opacity_loss=eps
-            else: opacity_loss = opacity_loss
+        else: opacity_loss = opacity_loss
 
         self.log("train/opacity_loss", opacity_loss, on_step=True)
         loss += opacity_loss
