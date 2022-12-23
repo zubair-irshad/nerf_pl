@@ -407,7 +407,8 @@ class LitNeRFPP_CO_TP(LitModel):
             self.white_bkgd = self.train_dataset.white_back
 
     def training_step(self, batch, batch_idx):
-
+        
+        eps = 1e-6
         for k,v in batch.items():
             batch[k] = v.squeeze(0)
 
@@ -428,10 +429,18 @@ class LitNeRFPP_CO_TP(LitModel):
         loss1 = helper.img2mse(rgb_fine, target)
         loss = loss1 + loss0
 
+        if loss.isnan(): loss=eps
+            else: loss = loss
+
         mask = batch["instance_mask"].view(-1, 1).repeat(1, 3)
         loss2 = helper.img2mse(obj_rgb_coarse[mask], target[mask])
         loss3 = helper.img2mse(obj_rgb_fine[mask], target[mask])
         masked_rgb_loss = (loss2 + loss3)
+
+        if masked_rgb_loss.isnan(): masked_rgb_loss=eps
+            else: masked_rgb_loss = masked_rgb_loss
+
+
         self.log("train/masked_rgb_loss", masked_rgb_loss, on_step=True)
         # loss += masked_rgb_loss
 
@@ -440,7 +449,11 @@ class LitNeRFPP_CO_TP(LitModel):
         #opacity loss
         opacity_loss = self.opacity_loss(
                 rendered_results, batch["instance_mask"].view(-1)
-            )     
+            )
+
+        if opacity_loss.isnan(): opacity_loss=eps
+            else: opacity_loss = opacity_loss
+
         self.log("train/opacity_loss", opacity_loss, on_step=True)
         loss += opacity_loss
 
@@ -451,7 +464,6 @@ class LitNeRFPP_CO_TP(LitModel):
         self.log("train/psnr0", psnr0, on_step=True, prog_bar=True, logger=True)
         self.log("train/loss", loss, on_step=True)
         self.log("train/lr", helper.get_learning_rate(self.optimizers()))
-
         return loss
 
     def render_rays(self, batch):
