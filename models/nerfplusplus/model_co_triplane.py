@@ -151,7 +151,8 @@ class NeRFPP_TP(nn.Module):
 
         self.encoder = GridEncoder()
         self.rgb_activation = nn.Sigmoid()
-        self.sigma_activation = nn.ReLU()
+        # self.sigma_activation = nn.ReLU()
+        self.sigma_activation = nn.Softplus()
         
         self.obj_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
         self.obj_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
