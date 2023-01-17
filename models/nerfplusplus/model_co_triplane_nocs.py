@@ -401,7 +401,7 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
 
         dataset = dataset_dict[self.hparams.dataset_name]
         
-        if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi_obj' or self.hparams.dataset_name =='pd_multi_obj_ae':
+        if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi_obj' or self.hparams.dataset_name =='pd_multi_obj_ae' or self.hparams.dataset_name =='pd_multi_obj_ae_nocs':
             kwargs_train = {'root_dir': self.hparams.root_dir,
                              'img_wh': tuple(self.hparams.img_wh),
                                 'white_back': self.hparams.white_back,
