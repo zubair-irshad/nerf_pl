@@ -54,13 +54,13 @@ def read_poses(pose_dir_train, pose_dir_val, img_files, output_boxes = False):
                 all_boxes.append(bbox*pose_scale_factor)
                 
                 #New scene 200 uncomment here
-                # all_rotations.append(data["obj_rotations"][k])
-                # translation = (np.array(data['obj_translations'][k])- obj_location)*pose_scale_factor 
-                # all_translations.append(translation)
+                all_rotations.append(data["obj_rotations"][k])
+                translation = (np.array(data['obj_translations'][k])- obj_location)*pose_scale_factor 
+                all_translations.append(translation)
 
         # Old scenes uncomment here
-        all_translations = (np.array(data['obj_translations'])- obj_location)*pose_scale_factor
-        all_rotations = data["obj_rotations"]
+        # all_translations = (np.array(data['obj_translations'])- obj_location)*pose_scale_factor
+        # all_rotations = data["obj_rotations"]
         
         RTs = {'R': all_rotations, 'T': all_translations, 's': all_boxes}
         return all_c2w_train, all_c2w_test, focal, img_wh, RTs
@@ -124,6 +124,9 @@ class PDMultiObject_AE_NOCS(Dataset):
         img = Image.open(os.path.join(base_dir, 'rgb', img_name))                
         img = img.resize((w,h), Image.LANCZOS)
 
+        nocs_2d = Image.open(os.path.join(base_dir, 'nocs_2d', img_name))                
+        nocs_2d = nocs_2d.resize((w,h), Image.LANCZOS)
+
         #Get masks
         seg_mask = Image.open(os.path.join(base_dir, 'semantic_segmentation_2d', img_name))
         # seg_mask = seg_mask.resize((w,h), Image.LANCZOS)
@@ -136,7 +139,7 @@ class PDMultiObject_AE_NOCS(Dataset):
         directions = get_ray_directions(h, w, focal) # (h, w, 3)
         rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
 
-        return rays_o, view_dirs, rays_d, img, instance_mask, radii, pose, torch.tensor(focal, dtype=torch.float32), torch.tensor(c, dtype=torch.float32)
+        return rays_o, view_dirs, rays_d, img, instance_mask, nocs_2d, radii, pose, torch.tensor(focal, dtype=torch.float32), torch.tensor(c, dtype=torch.float32)
 
     def define_transforms(self):
         self.transform = T.ToTensor()
@@ -157,6 +160,7 @@ class PDMultiObject_AE_NOCS(Dataset):
             instance_dir = self.ids[train_idx]
             
             imgs = list()
+            nocs_2ds = list()
             masks = list()
             rays = list()
             view_dirs = list()
@@ -171,10 +175,14 @@ class PDMultiObject_AE_NOCS(Dataset):
             ray_batch_size = 1024
         
             for train_image_id in range(0, NV):
-                cam_rays, cam_view_dirs, cam_rays_d, img, instance_mask, camera_radii, c2w, f, c =  self.read_data(instance_dir, train_image_id)
+                cam_rays, cam_view_dirs, cam_rays_d, img, instance_mask, nocs_2d, camera_radii, c2w, f, c =  self.read_data(instance_dir, train_image_id)
                 img = Image.fromarray(np.uint8(img))
                 instance_mask = T.ToTensor()(instance_mask)
                 img = T.ToTensor()(img)
+
+                nocs_2d = Image.fromarray(np.uint8(nocs_2d))
+                nocs_2d = T.ToTensor()(nocs_2d)
+
                 _, H, W = img.shape
                 camera_radii = torch.FloatTensor(camera_radii)
                 cam_rays = torch.FloatTensor(cam_rays)
@@ -191,6 +199,7 @@ class PDMultiObject_AE_NOCS(Dataset):
                 imgs.append(
                     img_transform(img)
                 )
+                nocs_2ds.append(nocs_2d)
                 masks.append(mask_gt)
                 rays.append(ray)
                 view_dirs.append(viewdir)
@@ -214,6 +223,7 @@ class PDMultiObject_AE_NOCS(Dataset):
             all_c = all_c[src_views_num, :]
   
             rgbs = torch.stack(rgbs, 0)
+            nocs_2ds = torch.stack(nocs_2ds, 0)
             rays = torch.stack(rays, 0)  
             rays_d = torch.stack(rays_d, 0) 
             view_dirs = torch.stack(view_dirs, 0)  
@@ -221,6 +231,7 @@ class PDMultiObject_AE_NOCS(Dataset):
 
             pix_inds = torch.randint(0, NV * H * W, (ray_batch_size,))
             rgbs = rgbs.reshape(-1,3)[pix_inds,...] 
+            nocs_2ds = nocs_2ds.reshape(-1,3)[pix_inds,...] 
             masks = masks.reshape(-1,1)[pix_inds]
             radii = radii.reshape(-1,1)[pix_inds]
             rays = rays.reshape(-1,3)[pix_inds]
@@ -248,6 +259,7 @@ class PDMultiObject_AE_NOCS(Dataset):
                 sample["rays_d"] = rays_d
                 sample["viewdirs"] = view_dirs
                 sample["target"] = rgbs
+                sample["nocs_2d"] = nocs_2ds
                 sample["radii"] = radii
                 sample["multloss"] = torch.zeros((sample["rays_o"].shape[0], 1))
                 sample["normals"] = torch.zeros_like(sample["rays_o"])
@@ -258,6 +270,7 @@ class PDMultiObject_AE_NOCS(Dataset):
         elif self.split=='val':
             instance_dir = self.ids[idx]
             imgs = list()
+            nocs_2ds = list()
             masks = list()
             rays = list()
             view_dirs = list()
@@ -270,10 +283,14 @@ class PDMultiObject_AE_NOCS(Dataset):
             NV = 99
             src_views = 3
             for train_image_id in range(0, NV):
-                cam_rays, cam_view_dirs, cam_rays_d, img, instance_mask, camera_radii, c2w, f, c =  self.read_data(instance_dir, train_image_id)
+                cam_rays, cam_view_dirs, cam_rays_d, img, instance_mask, nocs_2d, camera_radii, c2w, f, c =  self.read_data(instance_dir, train_image_id)
                 img = Image.fromarray(np.uint8(img))
                 instance_mask = T.ToTensor()(instance_mask)
                 img = T.ToTensor()(img)
+
+                nocs_2d = Image.fromarray(np.uint8(nocs_2d))
+                nocs_2d = T.ToTensor()(nocs_2d)
+
                 _, H, W = img.shape
                 camera_radii = torch.FloatTensor(camera_radii)
                 cam_rays = torch.FloatTensor(cam_rays)
@@ -290,6 +307,7 @@ class PDMultiObject_AE_NOCS(Dataset):
                 imgs.append(
                     img_transform(img)
                 )
+                nocs_2ds.append(nocs_2d)
                 masks.append(mask_gt)
                 rays.append(ray)
                 view_dirs.append(viewdir)
@@ -321,6 +339,7 @@ class PDMultiObject_AE_NOCS(Dataset):
             all_c = all_c[src_views_num, :]
   
             rgbs = torch.stack(rgbs, 0)
+            nocs_2ds = torch.stack(nocs_2ds, 0)
             masks = torch.stack(masks, 0)
             rays = torch.stack(rays, 0)  
             rays_d = torch.stack(rays_d, 0) 
@@ -328,6 +347,7 @@ class PDMultiObject_AE_NOCS(Dataset):
             radii = torch.stack(radii, 0)  
 
             rgbs = rgbs[dest_view_num].squeeze(0)
+            nocs_2ds = nocs_2ds[dest_view_num].squeeze(0)
             masks = masks[dest_view_num].squeeze(0)
             radii = radii[dest_view_num].squeeze(0)
             rays = rays[dest_view_num].squeeze(0)
@@ -355,6 +375,7 @@ class PDMultiObject_AE_NOCS(Dataset):
                 sample["rays_d"] = rays_d
                 sample["viewdirs"] = view_dirs
                 sample["target"] = rgbs
+                sample["nocs_2d"] = nocs_2ds
                 sample["radii"] = radii
                 sample["multloss"] = torch.zeros((sample["rays_o"].shape[0], 1))
                 sample["normals"] = torch.zeros_like(sample["rays_o"])

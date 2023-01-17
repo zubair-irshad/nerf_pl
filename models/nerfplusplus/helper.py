@@ -76,7 +76,7 @@ def pos_enc(x, min_deg, max_deg):
     return torch.cat([x] + [four_feat], dim=-1)
 
 
-def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_far=None):
+def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_far=None, nocs=None):
 
     eps = 1e-10
 
@@ -97,7 +97,11 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_fa
     comp_rgb = (weights[..., None] * rgb).sum(dim=-2)
     acc = weights.sum(dim=-1)
 
-    return comp_rgb, acc, weights, bg_lambda
+    if nocs is not None:
+        comp_nocs = (weights[..., None] * nocs).sum(dim=-2)
+        return comp_rgb, acc, weights, bg_lambda, comp_nocs
+    else:
+        return comp_rgb, acc, weights, bg_lambda
 
 
 def sorted_piecewise_constant_pdf(

@@ -26,6 +26,7 @@ from models.nerfplusplus.model_groundplan import LitNeRFPP_GP
 from models.nerfplusplus.model_triplane import LitNeRFPP_TP
 from models.nerfplusplus.model_co_groundplan import LitNeRFPP_CO_GP
 from models.nerfplusplus.model_co_triplane import LitNeRFPP_CO_TP
+from models.nerfplusplus.model_co_triplane_nocs import LitNeRFPP_CO_TP_NOCS
 
 # For debugging
 torch.backends.cudnn.deterministic = True
@@ -35,7 +36,7 @@ np.random.seed(0)
 random.seed(0)
 
 def main(hparams):
-    system = LitNeRFPP_CO_TP(hparams=hparams)
+    system = LitNeRFPP_CO_TP_NOCS(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
