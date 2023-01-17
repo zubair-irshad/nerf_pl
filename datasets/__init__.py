@@ -36,7 +36,7 @@ dataset_dict = {'blender': BlenderDataset,
                 'pd_multi_ae': PD_Multi_AE,
                 'srn_multi_ae': SRN_Multi_AE,
                 'pd_multi_obj_ae': PDMultiObject_AE,
-                'pd_multi_obj_nocs': PDMultiObject_AE_NOCS}
+                'pd_multi_obj_ae_nocs': PDMultiObject_AE_NOCS}
 
 # dataset_dict = {'blender': BlenderDataset,
 #                 'llff': LLFFDataset}
