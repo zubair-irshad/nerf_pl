@@ -132,7 +132,11 @@ class NeRFPPMLP(nn.Module):
             x = self.net_activation(x)
 
         raw_rgb = self.rgb_layer(x).reshape(-1, num_samples, self.num_rgb_channels)
-        return raw_rgb, raw_density, raw_nocs
+
+        if out_nocs:
+            return raw_rgb, raw_density, raw_nocs
+        else:
+            return raw_rgb, raw_density
 
 
 # @gin.configurable()
