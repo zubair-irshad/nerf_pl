@@ -101,7 +101,7 @@ class NeRFPPMLP(nn.Module):
         init.xavier_uniform_(self.density_layer.weight)
         init.xavier_uniform_(self.rgb_layer.weight)
 
-    def forward(self, x, condition, latent, out_nocs):
+    def forward(self, x, condition, latent, out_nocs=False):
         num_samples, feat_dim = x.shape[1:]
         x = x.reshape(-1, feat_dim)
         latent = latent.reshape(-1, latent.shape[-1])
@@ -162,8 +162,8 @@ class NeRFPP_TP(nn.Module):
         # self.sigma_activation = nn.ReLU()
         self.sigma_activation = nn.Softplus()
         
-        self.obj_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
-        self.obj_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
+        self.obj_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, out_nocs = True)
+        self.obj_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, out_nocs = True)
         self.fg_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
         self.fg_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view)
         self.bg_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, input_ch=4)
@@ -287,7 +287,7 @@ class NeRFPP_TP(nn.Module):
                     self.max_deg_point,
                 )
                 if out_nocs:
-                    raw_rgb, raw_sigma, raw_nocs = mlp(samples_enc, viewdirs_enc, latent)
+                    raw_rgb, raw_sigma, raw_nocs = mlp(samples_enc, viewdirs_enc, latent, out_nocs=True)
                 else:
                     raw_rgb, raw_sigma = mlp(samples_enc, viewdirs_enc, latent)
 
