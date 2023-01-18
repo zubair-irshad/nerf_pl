@@ -190,6 +190,7 @@ class PDMultiObject_AE_NOCS(Dataset):
                 cam_rays_d = torch.FloatTensor(cam_rays_d)
 
                 rgb_gt = img.permute(1,2,0).flatten(0,1)
+                nocs_2d_gt = nocs_2d.permute(1,2,0).flatten(0,1)
                 mask_gt = instance_mask.permute(1,2,0).flatten(0,1)
                 radii_gt = camera_radii.view(-1)
                 ray = cam_rays.view(-1, cam_rays.shape[-1])
@@ -199,7 +200,7 @@ class PDMultiObject_AE_NOCS(Dataset):
                 imgs.append(
                     img_transform(img)
                 )
-                nocs_2ds.append(nocs_2d)
+                nocs_2ds.append(nocs_2d_gt)
                 masks.append(mask_gt)
                 rays.append(ray)
                 view_dirs.append(viewdir)
@@ -298,6 +299,7 @@ class PDMultiObject_AE_NOCS(Dataset):
                 cam_rays_d = torch.FloatTensor(cam_rays_d)
 
                 rgb_gt = img.permute(1,2,0).flatten(0,1)
+                nocs_2d_gt = nocs_2d.permute(1,2,0).flatten(0,1)
                 mask_gt = instance_mask.permute(1,2,0).flatten(0,1)
                 radii_gt = camera_radii.view(-1)
                 ray = cam_rays.view(-1, cam_rays.shape[-1])
@@ -307,7 +309,7 @@ class PDMultiObject_AE_NOCS(Dataset):
                 imgs.append(
                     img_transform(img)
                 )
-                nocs_2ds.append(nocs_2d)
+                nocs_2ds.append(nocs_2d_gt)
                 masks.append(mask_gt)
                 rays.append(ray)
                 view_dirs.append(viewdir)
