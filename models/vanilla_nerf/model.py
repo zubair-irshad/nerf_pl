@@ -12,7 +12,6 @@ import os
 from random import random
 from typing import *
 
-import gin
 import numpy as np
 import torch
 import torch.nn as nn
@@ -23,8 +22,6 @@ import src.model.nerf.helper as helper
 import utils.store_image as store_image
 from src.model.interface import LitModel
 
-
-@gin.configurable()
 class NeRFMLP(nn.Module):
     def __init__(
         self,
@@ -109,8 +106,6 @@ class NeRFMLP(nn.Module):
 
         return raw_rgb, raw_density
 
-
-@gin.configurable()
 class NeRF(nn.Module):
     def __init__(
         self,
@@ -191,8 +186,6 @@ class NeRF(nn.Module):
 
         return ret
 
-
-@gin.configurable()
 class LitNeRF(LitModel):
     def __init__(
         self,
