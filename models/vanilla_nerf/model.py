@@ -18,9 +18,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 
-import src.model.nerf.helper as helper
-import utils.store_image as store_image
-from src.model.interface import LitModel
+import models.vanilla_nerf.helper as helper
+from utils.train_helper import *
+from models.vanilla_nerf.util import *
+from models.interface import LitModel
 
 class NeRFMLP(nn.Module):
     def __init__(
