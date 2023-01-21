@@ -179,6 +179,9 @@ def get_opts():
     parser.add_argument('--exp_name', type=str, default='exp',
                         help='experiment name')
 
+    parser.add_argument('--exp_type', type=str, default='vanilla',
+                        help='experiment type --choose from vanilla, pixel_nerf, pixel_nerf_sphere, groundplanar, triplanar')
+
     ###########################
 
     # parser.add_argument('--ckpt_path', type=str, default='last.ckpt',

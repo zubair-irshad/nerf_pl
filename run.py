@@ -14,6 +14,8 @@ import random
 #baselines models
 from models.nerfplusplus.model import LitNeRFPP
 from models.vanilla_nerf.model_pixel import LitPixelNeRF
+#
+from models.vanilla_nerf.model import LitNeRF
 # from models.mipnerf360.model import LitMipNeRF360
 from models.refnerf.model import LitRefNeRF
 
@@ -36,7 +38,14 @@ np.random.seed(0)
 random.seed(0)
 
 def main(hparams):
-    system = LitNeRFPP_CO_TP_NOCS(hparams=hparams)
+    if hparams.exp_type == 'pixelnerf':
+        system = LitNeRFPP_CO_TP(hparams=hparams)
+    elif hparams.exp_type == 'vanilla':
+        system = LitNeRF(hparams=hparams) # Needs to modify this to train for 3 test images
+    elif hparams.exp_type == 'groundplanar':
+        system = LitNeRFPP_CO_GP(hparams=hparams)
+    elif hparams.exp_type == 'triplanar':
+        system = LitNeRFPP_CO_TP(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
