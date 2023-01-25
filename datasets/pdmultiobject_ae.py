@@ -173,7 +173,7 @@ class PDMultiObject_AE(Dataset):
         if self.split == 'train':
             #all_c2w, _,  focal, img_size = read_poses(pose_dir_train, pose_dir_val, img_files= img_files)
             all_c2w, _, _, focal, img_size, self.RTs = read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_test, output_boxes=True)
-            img_files = img_files_train[100]
+            img_files = img_files_train[:100]
             base_dir = base_dir_train
         elif self.split == 'val':
             #all_c2w, _, focal, img_size = read_poses(pose_dir_train, pose_dir_val, img_files= img_files)
