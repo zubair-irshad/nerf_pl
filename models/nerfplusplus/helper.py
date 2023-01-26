@@ -94,7 +94,10 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_fa
     accum_prod = torch.cat([torch.ones_like(T[..., -1:]), T[..., :-1]], dim=-1)
     weights = alpha * accum_prod
 
+    a = weights[..., None] * rgb
+    print("weights[..., None]", weights[..., None].shape, rgb.shape, a.shape)
     comp_rgb = (weights[..., None] * rgb).sum(dim=-2)
+    print("comp_rgb, t_vals", comp_rgb.shape, t_vals.shape)
     acc = weights.sum(dim=-1)
 
     if nocs is not None:
