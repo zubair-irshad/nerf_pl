@@ -127,6 +127,9 @@ class PDMultiObject_AE(Dataset):
         self.base_dir = root_dir
         self.eval_inference = eval_inference
         self.ids = np.sort([f.name for f in os.scandir(self.base_dir)])
+        w, h = self.img_wh
+        #100 here as we are evalauting for 100 val images
+        self.image_sizes = np.array([[h, w] for i in range(100)])
 
         # if self.split =='val':
         #     self.ids = self.ids[:10]
