@@ -322,7 +322,6 @@ class NeRFPP_TP(nn.Module):
             bg_rgb, bg_sigma = predict(bg_samples, bg_mlp, latent_bg)
 
             if out_depth:
-
                 obj_comp_rgb, obj_acc, obj_weights, bg_lambda_obj, obj_depth = helper.volumetric_rendering(
                     obj_rgb,
                     obj_sigma,
@@ -333,7 +332,6 @@ class NeRFPP_TP(nn.Module):
                     t_far=far_obj,
                     out_depth = True
                 )
-                
                 fg_comp_rgb, fg_acc, fg_weights, bg_lambda, fg_depth = helper.volumetric_rendering(
                     fg_rgb,
                     fg_sigma,
@@ -386,7 +384,6 @@ class NeRFPP_TP(nn.Module):
                     white_bkgd=white_bkgd,
                     in_sphere=False,
                 )
-
                 comp_rgb = obj_comp_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
                 ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc))
 
@@ -573,6 +570,7 @@ class LitNeRFPP_CO_TP(LitModel):
         test_output["rgb"] = ret["comp_rgb"]
         test_output["obj_rgb"] = ret["obj_rgb"]
         test_output["rgb"] = ret["depth"]
+        print("ret[comp_rgb], ret[comp_rgb]", ret["comp_rgb"].shape, ret["depth"].shape, ret["obj_rgb"].shape)
         return test_output
 
     # def render_rays(self, batch, batch_idx):
