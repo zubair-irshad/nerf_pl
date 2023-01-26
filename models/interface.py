@@ -30,6 +30,7 @@ class LitModel(pl.LightningModule):
     # i.e., validation and test step.
     def alter_gather_cat(self, outputs, key, image_sizes):
         each = torch.cat([output[key] for output in outputs])
+        print("each", each.shape)
         all = self.all_gather(each).detach()
         if all.dim() == 3:
             all = all.permute((1, 0, 2)).flatten(0, 1)
