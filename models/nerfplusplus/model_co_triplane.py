@@ -659,40 +659,40 @@ class LitNeRFPP_CO_TP(LitModel):
     #     self.log("val/ssim", ssim_mean.item(), on_epoch=True, sync_dist=True)
     #     self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
 
-    def test_epoch_end(self, outputs):
-        # dmodule = self.trainer.datamodule
-        # all_image_sizes = (
-        #     dmodule.all_image_sizes
-        #     if not dmodule.eval_test_only
-        #     else dmodule.test_image_sizes
-        # )
-        all_image_sizes = self.test_dataset.image_sizes
-        rgbs = self.alter_gather_cat(outputs, "rgb", all_image_sizes)
-        targets = self.alter_gather_cat(outputs, "target", all_image_sizes)
-        # psnr = self.psnr(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
-        # ssim = self.ssim(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
-        # lpips = self.lpips(
-        #     rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test
-        # )
-        psnr = self.psnr(rgbs, targets, None, None, None)
-        ssim = self.ssim(rgbs, targets, None, None, None)
-        lpips = self.lpips(
-            rgbs, targets, None, None, None
-        )
-        print("psnr, ssim, lpips", psnr, ssim, lpips)
-        self.log("test/psnr", psnr["test"], on_epoch=True)
-        self.log("test/ssim", ssim["test"], on_epoch=True)
-        self.log("test/lpips", lpips["test"], on_epoch=True)
+    # def test_epoch_end(self, outputs):
+    #     # dmodule = self.trainer.datamodule
+    #     # all_image_sizes = (
+    #     #     dmodule.all_image_sizes
+    #     #     if not dmodule.eval_test_only
+    #     #     else dmodule.test_image_sizes
+    #     # )
+    #     all_image_sizes = self.test_dataset.image_sizes
+    #     rgbs = self.alter_gather_cat(outputs, "rgb", all_image_sizes)
+    #     targets = self.alter_gather_cat(outputs, "target", all_image_sizes)
+    #     # psnr = self.psnr(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
+    #     # ssim = self.ssim(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
+    #     # lpips = self.lpips(
+    #     #     rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test
+    #     # )
+    #     psnr = self.psnr(rgbs, targets, None, None, None)
+    #     ssim = self.ssim(rgbs, targets, None, None, None)
+    #     lpips = self.lpips(
+    #         rgbs, targets, None, None, None
+    #     )
+    #     print("psnr, ssim, lpips", psnr, ssim, lpips)
+    #     self.log("test/psnr", psnr["test"], on_epoch=True)
+    #     self.log("test/ssim", ssim["test"], on_epoch=True)
+    #     self.log("test/lpips", lpips["test"], on_epoch=True)
 
-        if self.trainer.is_global_zero:
-            image_dir = os.path.join("ckpts",self.hparams.exp_name, "render_model")
-            os.makedirs(image_dir, exist_ok=True)
-            store_image(image_dir, rgbs)
+    #     if self.trainer.is_global_zero:
+    #         image_dir = os.path.join("ckpts",self.hparams.exp_name, "render_model")
+    #         os.makedirs(image_dir, exist_ok=True)
+    #         store_image(image_dir, rgbs)
 
-            result_path = os.path.join("ckpts",self.hparams.exp_name, "results.json")
-            write_stats(result_path, psnr, ssim, lpips)
+    #         result_path = os.path.join("ckpts",self.hparams.exp_name, "results.json")
+    #         write_stats(result_path, psnr, ssim, lpips)
 
-        return psnr, ssim, lpips
+    #     return psnr, ssim, lpips
 
     def opacity_loss(self, rendered_results, instance_mask):
         opacity_lambda = 0.1
