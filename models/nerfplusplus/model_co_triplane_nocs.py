@@ -419,7 +419,7 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
             kwargs_test = {'root_dir': self.hparams.root_dir,
                             'img_wh': tuple(self.hparams.img_wh),
                             'white_back': self.hparams.white_back}
-            self.test_dataset = dataset(split='train', **kwargs_test)
+            self.test_dataset = dataset(split='val', eval_inference=True, **kwargs_test)
             self.near = self.test_dataset.near
             self.far = self.test_dataset.far
             self.white_bkgd = self.test_dataset.white_back
@@ -534,6 +534,8 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
         for k, v in ret.items():
             ret[k] = torch.cat(v, 0)
         psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
+        ssim_ = self.ssim_legacy(ret["comp_rgb"], batch["target"]).mean()
+        lpips_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
         self.log("val/psnr", psnr_.item(), on_step=True, prog_bar=True, logger=True)
         return ret
 
@@ -637,7 +639,7 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
         return DataLoader(self.test_dataset,
                         shuffle=False,
                         num_workers=4,
-                        batch_size=self.hparams.batch_size,
+                        batch_size=1,
                         pin_memory=True)
 
     # def validation_epoch_end(self, outputs):

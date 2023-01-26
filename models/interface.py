@@ -71,6 +71,15 @@ class LitModel(pl.LightningModule):
         return lpips
 
     @torch.no_grad()
+    def ssim_legacy(self, pred, gt):
+        ssim_model = SSIM().to(device=self.device)
+        pred = torch.clip(pred.permute((2, 0, 1)).unsqueeze(0).float(), 0, 1)
+        gt = torch.clip(gt.permute((2, 0, 1)).unsqueeze(0).float(), 0, 1)
+        ssim = ssim_model(pred, gt)
+        del ssim_model
+        return ssim
+
+    @torch.no_grad()
     def depth_mae_rmse(self, pred, gt):
         abs_diff = (pred - gt).abs()
         mse = float((torch.pow(abs_diff, 2)).mean())

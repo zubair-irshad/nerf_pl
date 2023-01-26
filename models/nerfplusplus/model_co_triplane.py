@@ -497,6 +497,42 @@ class LitNeRFPP_CO_TP(LitModel):
         self.log("val/psnr", psnr_.item(), on_step=True, prog_bar=True, logger=True)
         return ret
 
+    def render_rays_test(self, batch):
+        B = batch["rays_o"].shape[0]
+        ret = defaultdict(list)
+        for i in range(0, B, self.hparams.chunk):
+            batch_chunk = dict()
+            for k, v in batch.items():
+                if k == 'src_imgs' or k =='src_poses' or k =='src_focal' or k=='src_c':
+                   batch_chunk[k] = v 
+                elif k =='radii':
+                    batch_chunk[k] = v[:, i : i + self.hparams.chunk]
+                else:
+                    batch_chunk[k] = v[i : i + self.hparams.chunk]   
+
+            # do not suppress rays for near background mlp in validation since we don't have masks in inference time                 
+            rendered_results_chunk = self.model(
+                batch_chunk, False, self.white_bkgd, self.near, self.far, is_train=False
+            )
+            #here 1 denotes fine
+            ret["comp_rgb"]+=[rendered_results_chunk[1][0]]
+            ret["fg_rgb"] +=[rendered_results_chunk[1][1]]
+            ret["bg_rgb"] +=[rendered_results_chunk[1][2]]
+            ret["obj_rgb"] +=[rendered_results_chunk[1][3]]
+            ret["obj_acc"] +=[rendered_results_chunk[1][6]]
+            # for k, v in rendered_results_chunk[1].items():
+            #     ret[k] += [v]
+        for k, v in ret.items():
+            ret[k] = torch.cat(v, 0)
+
+        test_output = {}
+        rgb = ret["comp_rgb"]
+        target = batch["target"]
+        test_output["target"] = target
+        test_output["rgb"] = rgb
+
+        return test_output
+
     # def render_rays(self, batch, batch_idx):
     #     ret = {}
     #     rendered_results = self.model(
@@ -539,7 +575,7 @@ class LitNeRFPP_CO_TP(LitModel):
     def test_step(self, batch, batch_idx):
         for k,v in batch.items():
             print(k,v.shape)
-        return self.render_rays(batch, batch_idx)
+        return self.render_rays_test(batch)
 
     def configure_optimizers(self):
         return torch.optim.Adam(
@@ -631,7 +667,7 @@ class LitNeRFPP_CO_TP(LitModel):
         lpips = self.lpips(
             rgbs, targets, None, None, None
         )
-
+        print("psnr, ssim, lpips", psnr, ssim, lpips)
         self.log("test/psnr", psnr["test"], on_epoch=True)
         self.log("test/ssim", ssim["test"], on_epoch=True)
         self.log("test/lpips", lpips["test"], on_epoch=True)
