@@ -585,7 +585,10 @@ class LitNeRFPP_CO_TP(LitModel):
                 batch[k] = batch[k].unsqueeze(-1)
         for k,v in batch.items():
             print(k,v.shape)
-        return self.render_rays_test(batch)
+        self.model.encode(batch["src_imgs"], batch["src_poses"], batch["src_focal"], batch["src_c"])
+        W,H = self.hparams.img_wh
+        ret = self.render_rays(batch)
+        return ret
 
     def configure_optimizers(self):
         return torch.optim.Adam(
