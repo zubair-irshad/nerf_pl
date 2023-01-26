@@ -533,6 +533,8 @@ class LitNeRFPP_CO_TP(LitModel):
         test_output["target"] = target
         test_output["rgb"] = rgb
 
+        print("target, rgb", target.shape, rgb.shape)
+
         return test_output
 
     # def render_rays(self, batch, batch_idx):
@@ -581,7 +583,6 @@ class LitNeRFPP_CO_TP(LitModel):
                 batch[k] = v.unsqueeze(-1)
             if k == "near_obj" or k== "far_obj":
                 batch[k] = batch[k].unsqueeze(-1)
-
         for k,v in batch.items():
             print(k,v.shape)
         return self.render_rays_test(batch)
