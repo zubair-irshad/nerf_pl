@@ -573,9 +573,6 @@ class LitNeRFPP_CO_TP(LitModel):
         test_output["rgb"] = ret["comp_rgb"]
         test_output["obj_rgb"] = ret["obj_rgb"]
         test_output["rgb"] = ret["depth"]
-
-        print("target, rgb", target.shape, rgb.shape)
-
         return test_output
 
     # def render_rays(self, batch, batch_idx):
