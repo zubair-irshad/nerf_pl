@@ -646,7 +646,7 @@ class LitNeRFPP_CO_TP(LitModel):
         return DataLoader(self.test_dataset,
                         shuffle=False,
                         num_workers=4,
-                        batch_size=self.hparams.batch_size,
+                        batch_size=1,
                         pin_memory=True)
 
     # def validation_epoch_end(self, outputs):
