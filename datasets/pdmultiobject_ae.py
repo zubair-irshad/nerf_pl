@@ -402,6 +402,8 @@ class PDMultiObject_AE(Dataset):
                 dest_view_num = np.random.randint(0, NV - src_views)
                 for vs in range(src_views):
                     dest_view_num += dest_view_num >= src_views_num[vs]
+
+            print("source view_num, dest_view_num", src_views_num, dest_view_num)
             
             dest_view_num = [dest_view_num]    
             imgs = imgs[src_views_num, :]
