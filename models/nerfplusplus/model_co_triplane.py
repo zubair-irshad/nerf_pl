@@ -164,7 +164,7 @@ class NeRFPP_TP(nn.Module):
     def encode(self, images, poses, focal, c):
         self.encoder(images, poses, focal, c)
 
-    def forward(self, rays, randomized, white_bkgd, near, far, is_train=True):
+    def forward(self, rays, randomized, white_bkgd, near, far, out_depth=True):
         ret = []
         near = torch.full_like(rays["rays_o"][..., -1:], 1e-4)
         far = helper.intersect_sphere(rays["rays_o"], rays["rays_d"])
@@ -321,37 +321,74 @@ class NeRFPP_TP(nn.Module):
             fg_rgb, fg_sigma = predict(fg_samples, fg_mlp, latent_fg)
             bg_rgb, bg_sigma = predict(bg_samples, bg_mlp, latent_bg)
 
+            if out_depth:
 
-            obj_comp_rgb, obj_acc, obj_weights, bg_lambda_obj = helper.volumetric_rendering(
-                obj_rgb,
-                obj_sigma,
-                obj_t_vals,
-                rays["rays_d"],
-                white_bkgd=white_bkgd,
-                in_sphere=True,
-                t_far=far_obj,
-            )
-            
-            fg_comp_rgb, fg_acc, fg_weights, bg_lambda = helper.volumetric_rendering(
-                fg_rgb,
-                fg_sigma,
-                fg_t_vals,
-                rays["rays_d"],
-                white_bkgd=white_bkgd,
-                in_sphere=True,
-                t_far=far,
-            )
-            bg_comp_rgb, bg_acc, bg_weights, _ = helper.volumetric_rendering(
-                bg_rgb,
-                bg_sigma,
-                bg_t_vals,
-                rays["rays_d"],
-                white_bkgd=white_bkgd,
-                in_sphere=False,
-            )
+                obj_comp_rgb, obj_acc, obj_weights, bg_lambda_obj, obj_depth = helper.volumetric_rendering(
+                    obj_rgb,
+                    obj_sigma,
+                    obj_t_vals,
+                    rays["rays_d"],
+                    white_bkgd=white_bkgd,
+                    in_sphere=True,
+                    t_far=far_obj,
+                    out_depth = True
+                )
+                
+                fg_comp_rgb, fg_acc, fg_weights, bg_lambda, fg_depth = helper.volumetric_rendering(
+                    fg_rgb,
+                    fg_sigma,
+                    fg_t_vals,
+                    rays["rays_d"],
+                    white_bkgd=white_bkgd,
+                    in_sphere=True,
+                    t_far=far,
+                    out_depth = True
+                )
+                bg_comp_rgb, bg_acc, bg_weights, _, bg_depth = helper.volumetric_rendering(
+                    bg_rgb,
+                    bg_sigma,
+                    bg_t_vals,
+                    rays["rays_d"],
+                    white_bkgd=white_bkgd,
+                    in_sphere=False,
+                    out_depth = True
+                )
 
-            comp_rgb = obj_comp_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
-            ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc))
+                comp_rgb = obj_comp_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
+                comp_depth = obj_depth + fg_depth + bg_lambda * bg_depth
+                ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc, comp_depth))
+
+            else:
+                obj_comp_rgb, obj_acc, obj_weights, bg_lambda_obj = helper.volumetric_rendering(
+                    obj_rgb,
+                    obj_sigma,
+                    obj_t_vals,
+                    rays["rays_d"],
+                    white_bkgd=white_bkgd,
+                    in_sphere=True,
+                    t_far=far_obj,
+                )
+                
+                fg_comp_rgb, fg_acc, fg_weights, bg_lambda = helper.volumetric_rendering(
+                    fg_rgb,
+                    fg_sigma,
+                    fg_t_vals,
+                    rays["rays_d"],
+                    white_bkgd=white_bkgd,
+                    in_sphere=True,
+                    t_far=far,
+                )
+                bg_comp_rgb, bg_acc, bg_weights, _ = helper.volumetric_rendering(
+                    bg_rgb,
+                    bg_sigma,
+                    bg_t_vals,
+                    rays["rays_d"],
+                    white_bkgd=white_bkgd,
+                    in_sphere=False,
+                )
+
+                comp_rgb = obj_comp_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
+                ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc))
 
         return ret
 
@@ -521,20 +558,21 @@ class LitNeRFPP_CO_TP(LitModel):
             )
             #here 1 denotes fine
             ret["comp_rgb"]+=[rendered_results_chunk[1][0]]
-            ret["fg_rgb"] +=[rendered_results_chunk[1][1]]
-            ret["bg_rgb"] +=[rendered_results_chunk[1][2]]
+            # ret["fg_rgb"] +=[rendered_results_chunk[1][1]]
+            # ret["bg_rgb"] +=[rendered_results_chunk[1][2]]
             ret["obj_rgb"] +=[rendered_results_chunk[1][3]]
-            ret["obj_acc"] +=[rendered_results_chunk[1][6]]
+            ret["depth"] +=[rendered_results_chunk[1][7]]
+            # ret["obj_acc"] +=[rendered_results_chunk[1][6]]
             # for k, v in rendered_results_chunk[1].items():
             #     ret[k] += [v]
         for k, v in ret.items():
             ret[k] = torch.cat(v, 0)
 
         test_output = {}
-        rgb = ret["comp_rgb"]
-        target = batch["target"]
-        test_output["target"] = target
-        test_output["rgb"] = rgb
+        test_output["target"] = batch["target"]
+        test_output["rgb"] = ret["comp_rgb"]
+        test_output["obj_rgb"] = ret["obj_rgb"]
+        test_output["rgb"] = ret["depth"]
 
         print("target, rgb", target.shape, rgb.shape)
 
@@ -672,6 +710,8 @@ class LitNeRFPP_CO_TP(LitModel):
         all_image_sizes = self.test_dataset.image_sizes
         rgbs = self.alter_gather_cat(outputs, "rgb", all_image_sizes)
         targets = self.alter_gather_cat(outputs, "target", all_image_sizes)
+
+        depths = self.alter_gather_cat(outputs, "depth", all_image_sizes)
         # psnr = self.psnr(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
         # ssim = self.ssim(rgbs, targets, dmodule.i_train, dmodule.i_val, dmodule.i_test)
         # lpips = self.lpips(
@@ -688,9 +728,13 @@ class LitNeRFPP_CO_TP(LitModel):
         self.log("test/lpips", lpips["test"], on_epoch=True)
 
         if self.trainer.is_global_zero:
-            image_dir = os.path.join("ckpts",self.hparams.exp_name, "render_model")
+            image_dir = os.path.join("ckpts",self.hparams.exp_name, self.hparams.render_name)
             os.makedirs(image_dir, exist_ok=True)
             store_image(image_dir, rgbs)
+
+            image_dir = os.path.join("ckpts",self.hparams.exp_name, self.hparams.render_name)
+            os.makedirs(image_dir, exist_ok=True)
+            store_depth(image_dir, depths)
 
             result_path = os.path.join("ckpts",self.hparams.exp_name, "results.json")
             write_stats(result_path, psnr, ssim, lpips)

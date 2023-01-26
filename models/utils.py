@@ -4,6 +4,7 @@ import imageio
 import numpy as np
 from PIL import Image
 import json
+import cv2
 
 def to8b(x):
     return (255 * np.clip(x, 0, 1)).astype(np.uint8)
@@ -20,6 +21,22 @@ def store_image(dirpath, rgbs):
         rgbimg = Image.fromarray(to8b(rgb.detach().cpu().numpy()))
         imgpath = os.path.join(dirpath, imgname)
         rgbimg.save(imgpath)
+
+def store_depth(dirpath, rgbs):
+    depth_maps = []
+    for (i, depth) in enumerate(rgbs):
+        depth_maps += [depth_pred.detach().cpu().numpy()]
+
+    min_depth = np.min(depth_maps)
+    max_depth = np.max(depth_maps)
+    depth_imgs = (depth_maps - np.min(depth_maps)) / (max(np.max(depth_maps) - np.min(depth_maps), 1e-8))
+    depth_imgs_ = [cv2.applyColorMap((img * 255).astype(np.uint8), cv2.COLORMAP_JET) for img in depth_imgs]
+
+    for depth in depth_imgs_:
+        depthname = f"depth{str(i).zfill(3)}.jpg"
+        depth_img = Image.fromarray(to8b(rgb.detach().cpu().numpy()))
+        depthpath = os.path.join(dirpath, depthname)
+        depth_img.save(depthpath)
 
 
 def store_video(dirpath, rgbs, depths):
