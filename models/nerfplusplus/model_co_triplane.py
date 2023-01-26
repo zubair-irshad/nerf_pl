@@ -500,6 +500,9 @@ class LitNeRFPP_CO_TP(LitModel):
         return ret
 
     def render_rays_test(self, batch):
+
+        for k,v in batch.items():
+            print(k,v.shape)
         B = batch["rays_o"].shape[0]
         ret = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
