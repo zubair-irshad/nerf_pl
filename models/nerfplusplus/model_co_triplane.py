@@ -393,7 +393,8 @@ class LitNeRFPP_CO_TP(LitModel):
         if self.hparams.run_eval:        
             kwargs_test = {'root_dir': self.hparams.root_dir,
                             'img_wh': tuple(self.hparams.img_wh),
-                            'white_back': self.hparams.white_back}
+                            'white_back': self.hparams.white_back,
+                            'model_type': 'nerfpp'}
             self.test_dataset = dataset(split='train', **kwargs_test)
             self.near = self.test_dataset.near
             self.far = self.test_dataset.far
@@ -503,7 +504,7 @@ class LitNeRFPP_CO_TP(LitModel):
         for i in range(0, B, self.hparams.chunk):
             batch_chunk = dict()
             for k, v in batch.items():
-                if k == 'src_imgs' or k =='src_poses' or k =='src_focal' or k=='src_c':
+            if k == 'src_imgs' or k =='src_poses' or k =='src_focal' or k=='src_c':
                    batch_chunk[k] = v 
                 elif k =='radii':
                     batch_chunk[k] = v[:, i : i + self.hparams.chunk]
@@ -573,6 +574,13 @@ class LitNeRFPP_CO_TP(LitModel):
                 })
 
     def test_step(self, batch, batch_idx):
+        for k,v in batch.items():
+            batch[k] = v.squeeze()
+            if k =='radii':
+                batch[k] = v.unsqueeze(-1)
+            if k == "near_obj" or k== "far_obj":
+                batch[k] = batch[k].unsqueeze(-1)
+
         for k,v in batch.items():
             print(k,v.shape)
         return self.render_rays_test(batch)
