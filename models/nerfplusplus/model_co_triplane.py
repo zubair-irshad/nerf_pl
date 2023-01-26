@@ -507,10 +507,10 @@ class LitNeRFPP_CO_TP(LitModel):
             for k, v in batch.items():
                 if k == 'src_imgs' or k =='src_poses' or k =='src_focal' or k=='src_c':
                     batch_chunk[k] = v 
-                    elif k =='radii':
-                        batch_chunk[k] = v[:, i : i + self.hparams.chunk]
-                    else:
-                        batch_chunk[k] = v[i : i + self.hparams.chunk]   
+                elif k =='radii':
+                    batch_chunk[k] = v[:, i : i + self.hparams.chunk]
+                else:
+                    batch_chunk[k] = v[i : i + self.hparams.chunk]   
 
             # do not suppress rays for near background mlp in validation since we don't have masks in inference time                 
             rendered_results_chunk = self.model(
