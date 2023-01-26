@@ -339,7 +339,10 @@ class PDMultiObject_AE(Dataset):
                 
         # elif self.split == 'val': # create data for each image separately
         elif self.split=='val':
-            instance_dir = self.ids[idx]
+            if self.eval_inference:
+                instance_dir = self.ids[0]
+            else:
+                instance_dir = self.ids[idx]
             imgs = list()
             masks = list()
             rays = list()

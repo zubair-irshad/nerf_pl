@@ -32,7 +32,6 @@ class LitModel(pl.LightningModule):
         each = torch.cat([output[key] for output in outputs])
         print("each", each.shape)
         all = self.all_gather(each).detach()
-
         print("all", all.shape)
         if all.dim() == 3:
             all = all.permute((1, 0, 2)).flatten(0, 1)
