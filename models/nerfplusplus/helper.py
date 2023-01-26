@@ -102,7 +102,8 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_fa
         return comp_rgb, acc, weights, bg_lambda, comp_nocs
     else:
         if out_depth is not None:
-            comp_nocs = (weights[..., None] * t_vals).sum(dim=-2)
+            print("weights, t_vals", weights[..., None].shape, t_vals.shape)
+            comp_depth = (weights[..., None] * t_vals).sum(dim=-2)
             return comp_rgb, acc, weights, bg_lambda, comp_depth
         else:
             return comp_rgb, acc, weights, bg_lambda
