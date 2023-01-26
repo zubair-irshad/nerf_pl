@@ -432,7 +432,7 @@ class LitNeRFPP_CO_TP(LitModel):
                             'img_wh': tuple(self.hparams.img_wh),
                             'white_back': self.hparams.white_back,
                             'model_type': 'nerfpp',
-                            'eval_inference': True}
+                            'eval_inference': False}
             self.test_dataset = dataset(split='val',**kwargs_test)
             self.near = self.test_dataset.near
             self.far = self.test_dataset.far
