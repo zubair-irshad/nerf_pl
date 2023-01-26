@@ -554,7 +554,7 @@ class LitNeRFPP_CO_TP(LitModel):
 
             # do not suppress rays for near background mlp in validation since we don't have masks in inference time                 
             rendered_results_chunk = self.model(
-                batch_chunk, False, self.white_bkgd, self.near, self.far, is_train=False
+                batch_chunk, False, self.white_bkgd, self.near, self.far, out_depth=True
             )
             #here 1 denotes fine
             ret["comp_rgb"]+=[rendered_results_chunk[1][0]]
