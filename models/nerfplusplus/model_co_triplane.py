@@ -586,7 +586,6 @@ class LitNeRFPP_CO_TP(LitModel):
         for k,v in batch.items():
             print(k,v.shape)
         self.model.encode(batch["src_imgs"], batch["src_poses"], batch["src_focal"], batch["src_c"])
-        W,H = self.hparams.img_wh
         ret = self.render_rays_test(batch)
         return ret
 
