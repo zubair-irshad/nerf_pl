@@ -405,7 +405,8 @@ class PDMultiObject_AE(Dataset):
 
             print("source view_num, dest_view_num", src_views_num, dest_view_num)
             
-            dest_view_num = [dest_view_num]    
+            dest_view_num = [dest_view_num]
+            print("dest_view_num", dest_view_num)    
             imgs = imgs[src_views_num, :]
             poses = poses[src_views_num, :]
             focals = focals[src_views_num]
@@ -417,6 +418,8 @@ class PDMultiObject_AE(Dataset):
             rays_d = torch.stack(rays_d, 0) 
             view_dirs = torch.stack(view_dirs, 0)  
             radii = torch.stack(radii, 0)  
+
+            print("rgbs", rgbs.shape)
 
             rgbs = rgbs[dest_view_num].squeeze(0)
             masks = masks[dest_view_num].squeeze(0)
