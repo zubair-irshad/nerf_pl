@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 import models.nerfplusplus.helper as helper
-from models.utils import store_image, write_stats
+from models.utils import store_image, store_depth, write_stats
 from models.interface import LitModel
 from torch.utils.data import DataLoader
 from datasets import dataset_dict
