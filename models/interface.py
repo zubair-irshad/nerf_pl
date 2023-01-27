@@ -37,7 +37,10 @@ class LitModel(pl.LightningModule):
             all = all.permute((1, 0, 2)).flatten(0, 1)
         ret, curr = [], 0
         for (h, w) in image_sizes:
-            ret.append(all[curr : curr + h * w].reshape(h, w, 3))
+            if all.dim() == 2:
+                ret.append(all[curr : curr + h * w].reshape(h, w, 3))
+            else:
+                ret.append(all[curr : curr + h * w].reshape(h, w))
             curr += h * w
         return ret
 
