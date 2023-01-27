@@ -27,6 +27,7 @@ from models.nerfplusplus.model_ae import LitNeRFPP_AE
 from models.nerfplusplus.model_groundplan import LitNeRFPP_GP
 from models.nerfplusplus.model_triplane import LitNeRFPP_TP
 from models.nerfplusplus.model_co_groundplan import LitNeRFPP_CO_GP
+from models.nerfplusplus.model_co_groundplan_nocs import LitNeRFPP_CO_GP_NOCS
 from models.nerfplusplus.model_co_triplane import LitNeRFPP_CO_TP
 from models.nerfplusplus.model_co_triplane_nocs import LitNeRFPP_CO_TP_NOCS
 
@@ -44,6 +45,8 @@ def main(hparams):
         system = LitNeRF(hparams=hparams) # Needs to modify this to train for 3 test images
     elif hparams.exp_type == 'groundplanar':
         system = LitNeRFPP_CO_GP(hparams=hparams)
+    elif hparams.exp_type == 'groundplanar_nocs':
+        system = LitNeRFPP_CO_GP_NOCS(hparams=hparams)
     elif hparams.exp_type == 'triplanar':
         system = LitNeRFPP_CO_TP(hparams=hparams)
 
