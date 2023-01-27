@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 import models.nerfplusplus.helper as helper
-from models.utils import store_image, store_depth, write_stats
+from models.utils import store_image, store_depth_img, store_depth_raw, write_stats
 from models.interface import LitModel
 from torch.utils.data import DataLoader
 from datasets import dataset_dict
@@ -429,7 +429,8 @@ class LitNeRFPP_CO_TP(LitModel):
                             'img_wh': tuple(self.hparams.img_wh),
                             'white_back': self.hparams.white_back,
                             'model_type': 'nerfpp',
-                            'eval_inference': self.hparams.render_name}
+                            # 'eval_inference': self.hparams.render_name}
+                            'eval_inference': None}
             self.test_dataset = dataset(split='val',**kwargs_test)
             self.near = self.test_dataset.near
             self.far = self.test_dataset.far
@@ -729,7 +730,11 @@ class LitNeRFPP_CO_TP(LitModel):
 
             image_dir = os.path.join("ckpts",self.hparams.exp_name, self.hparams.render_name)
             os.makedirs(image_dir, exist_ok=True)
-            store_depth(image_dir, depths)
+            store_depth_img(image_dir, depths)
+
+            image_dir = os.path.join("ckpts",self.hparams.exp_name, self.hparams.render_name)
+            os.makedirs(image_dir, exist_ok=True)
+            store_depth_raw(image_dir, depths)
 
             result_path = os.path.join("ckpts",self.hparams.exp_name, "results.json")
             write_stats(result_path, psnr, ssim, lpips)
