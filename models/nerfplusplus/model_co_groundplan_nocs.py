@@ -23,15 +23,9 @@ from collections import defaultdict
 import torch.distributed as dist
 from utils.train_helper import *
 from models.nerfplusplus.util import *
-from models.nerfplusplus.encoder_tp import GridEncoder
-# from models.nerfplusplus.encoder_gp import GridEncoder
+# from models.nerfplusplus.encoder_tp import GridEncoder
+from models.nerfplusplus.encoder_gp import GridEncoder
 import wandb
-import random
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-
-np.random.seed(0)   
-random.seed(0)
 
 # @gin.configurable()
 class NeRFPPMLP(nn.Module):
@@ -95,13 +89,15 @@ class NeRFPPMLP(nn.Module):
 
         if self.out_nocs:
             self.nocs_layer = nn.Linear(netwidth, num_rgb_channels)
+            self.ins_layer = nn.Linear(netwidth, 1)
             init.xavier_uniform_(self.nocs_layer.weight)
+            init.xavier_uniform_(self.ins_layer.weight)
 
         init.xavier_uniform_(self.bottleneck_layer.weight)
         init.xavier_uniform_(self.density_layer.weight)
         init.xavier_uniform_(self.rgb_layer.weight)
 
-    def forward(self, x, condition, latent, out_nocs=False):
+    def forward(self, x, condition, latent, out_nocs = False):
         num_samples, feat_dim = x.shape[1:]
         x = x.reshape(-1, feat_dim)
         latent = latent.reshape(-1, latent.shape[-1])
@@ -121,6 +117,8 @@ class NeRFPPMLP(nn.Module):
         if out_nocs:
             #Could consider detaching the features as mentioned in: https://github.com/vLAR-group/DM-NeRF/blob/082da8d64c6d7d77936f53d16b1a61ca35b1f9b7/networks/dm_nerf.py#L95
             raw_nocs = self.nocs_layer(x).reshape(-1, num_samples, self.num_rgb_channels)
+            sem_logits = self.ins_layer(x).reshape(-1, num_samples, 1)
+
 
         bottleneck = self.bottleneck_layer(x)
         condition_tile = torch.tile(condition[:, None, :], (1, num_samples, 1)).reshape(
@@ -134,13 +132,13 @@ class NeRFPPMLP(nn.Module):
         raw_rgb = self.rgb_layer(x).reshape(-1, num_samples, self.num_rgb_channels)
 
         if out_nocs:
-            return raw_rgb, raw_density, raw_nocs
+            return raw_rgb, raw_density, raw_nocs, sem_logits
         else:
             return raw_rgb, raw_density
 
 
 # @gin.configurable()
-class NeRFPP_TP(nn.Module):
+class NeRFPP_GP(nn.Module):
     def __init__(
         self,
         num_levels: int = 2,
@@ -159,12 +157,11 @@ class NeRFPP_TP(nn.Module):
             if name not in ["self", "__class__"]:
                 setattr(self, name, value)
 
-        super(NeRFPP_TP, self).__init__()
+        super(NeRFPP_GP, self).__init__()
 
         self.encoder = GridEncoder()
         self.rgb_activation = nn.Sigmoid()
-        # self.sigma_activation = nn.ReLU()
-        self.sigma_activation = nn.Softplus()
+        self.sigma_activation = nn.ReLU()
         
         self.obj_coarse_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, out_nocs = True)
         self.obj_fine_mlp = NeRFPPMLP(min_deg_point, max_deg_point, deg_view, out_nocs = True)
@@ -182,19 +179,16 @@ class NeRFPP_TP(nn.Module):
         far = helper.intersect_sphere(rays["rays_o"], rays["rays_d"])
 
         #Supress the near_obj far_obj to only keep ones inside the bounding box
-        # near_obj, far_obj = rays["near_obj"], rays["far_obj"]
-
-        #Supress the near_obj far_obj to only keep ones inside the bounding box
         near_obj, far_obj = rays["near_obj"], rays["far_obj"]
-
-        # Suppress rays outside of instance masks of objects for object MLP
-        near_obj[~rays["instance_mask"]] = torch.zeros_like(near_obj[~rays["instance_mask"]])
-        far_obj[~rays["instance_mask"]] = torch.zeros_like(far_obj[~rays["instance_mask"]])
 
         #Do not Supress the near_obj far_obj to only keep ones inside the bounding box but rather keep all
         # near_obj = near
         # far_obj = far
 
+        # Suppress rays outside of instance masks of objects for object MLP
+        # near_obj[~rays["instance_mask"]] = torch.zeros_like(near_obj[~rays["instance_mask"]])
+        # far_obj[~rays["instance_mask"]] = torch.zeros_like(far_obj[~rays["instance_mask"]])
+        
         for i_level in range(self.num_levels):
             if i_level == 0:
                 obj_t_vals, obj_samples = helper.sample_along_rays(
@@ -208,22 +202,22 @@ class NeRFPP_TP(nn.Module):
                     in_sphere=True,
                 )
                 
-                # near_insphere = near
-                # far_insphere = far
+                near_insphere = near
+                far_insphere = far
                 
                 #supress the rays for near background MLP where bounding boxes esists
-                # if is_train:
-                #     near_insphere[rays["instance_mask"]] = torch.zeros_like(near_insphere[rays["instance_mask"]])
-                #     far_insphere[rays["instance_mask"]] = torch.zeros_like(far_insphere[rays["instance_mask"]])
+                if is_train:
+                    near_insphere[rays["instance_mask"]] = torch.zeros_like(near_insphere[rays["instance_mask"]])
+                    far_insphere[rays["instance_mask"]] = torch.zeros_like(far_insphere[rays["instance_mask"]])
 
                 fg_t_vals, fg_samples = helper.sample_along_rays(
                     rays_o=rays["rays_o"],
                     rays_d=rays["rays_d"],
                     num_samples=self.num_coarse_samples,
-                    near=near,
-                    far=far,
-                    # near=near_insphere,
-                    # far=far_insphere,
+                    # near=near,
+                    # far=far,
+                    near=near_insphere,
+                    far=far_insphere,
                     randomized=randomized,
                     lindisp=self.lindisp,
                     in_sphere=True,
@@ -290,8 +284,10 @@ class NeRFPP_TP(nn.Module):
                     self.min_deg_point,
                     self.max_deg_point,
                 )
+                # raw_rgb, raw_sigma = mlp(samples_enc, viewdirs_enc, latent)
+
                 if out_nocs:
-                    raw_rgb, raw_sigma, raw_nocs = mlp(samples_enc, viewdirs_enc, latent, out_nocs=True)
+                    raw_rgb, raw_sigma, raw_nocs, sem_logits = mlp(samples_enc, viewdirs_enc, latent, out_nocs=True)
                 else:
                     raw_rgb, raw_sigma = mlp(samples_enc, viewdirs_enc, latent)
 
@@ -302,51 +298,54 @@ class NeRFPP_TP(nn.Module):
 
                 rgb = self.rgb_activation(raw_rgb)
                 sigma = self.sigma_activation(raw_sigma)
+
                 if out_nocs:
                     nocs = self.rgb_activation(raw_nocs)
-                    return rgb, sigma, nocs
+                    return rgb, sigma, nocs, sem_logits
                 else:
                     return rgb, sigma
 
+                # return rgb, sigma
+
             # Get triplane features here
 
-            B, N_samples, _ = obj_samples.shape
-            latent_obj = self.encoder.index(obj_samples)
-            latent_obj = latent_obj.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
-
-            B, N_samples, _ = fg_samples.shape
-            latent_fg = self.encoder.index(fg_samples)
-            latent_fg = latent_fg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
-
-            B, N_samples, _ = bg_samples.shape
-            latent_bg = self.encoder.index(bg_samples)
-            latent_bg = latent_bg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
-
-            # B,N_samples, _ = fg_samples.shape
-            # uv_obj = obj_samples[:, :, [0, 2]]
-            # uv_obj = uv_obj.reshape(-1,2).unsqueeze(0)
-            # latent_obj = self.encoder.index(uv_obj)
+            # B, N_samples, _ = obj_samples.shape
+            # latent_obj = self.encoder.index(obj_samples)
             # latent_obj = latent_obj.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
 
-            # B,N_samples, _ = fg_samples.shape
-            # uv_fg = fg_samples[:, :, [0, 2]]
-            # uv_fg = uv_fg.reshape(-1,2).unsqueeze(0)
-            # latent_fg = self.encoder.index(uv_fg)
+            # B, N_samples, _ = fg_samples.shape
+            # latent_fg = self.encoder.index(fg_samples)
             # latent_fg = latent_fg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
 
             # B, N_samples, _ = bg_samples.shape
-            # uv_bg = bg_samples[:, :, [0, 2]]
-            # uv_bg = uv_bg.reshape(-1,2).unsqueeze(0)
-            # latent_bg = self.encoder.index(uv_bg)
+            # latent_bg = self.encoder.index(bg_samples)
             # latent_bg = latent_bg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
 
+            B,N_samples, _ = fg_samples.shape
+            uv_obj = obj_samples[:, :, [0, 2]]
+            uv_obj = uv_obj.reshape(-1,2).unsqueeze(0)
+            latent_obj = self.encoder.index(uv_obj)
+            latent_obj = latent_obj.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
+
+            B,N_samples, _ = fg_samples.shape
+            uv_fg = fg_samples[:, :, [0, 2]]
+            uv_fg = uv_fg.reshape(-1,2).unsqueeze(0)
+            latent_fg = self.encoder.index(uv_fg)
+            latent_fg = latent_fg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
+
+            B, N_samples, _ = bg_samples.shape
+            uv_bg = bg_samples[:, :, [0, 2]]
+            uv_bg = uv_bg.reshape(-1,2).unsqueeze(0)
+            latent_bg = self.encoder.index(uv_bg)
+            latent_bg = latent_bg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
+
             #Get predictions for each MLP
-            obj_rgb, obj_sigma, nocs_obj = predict(obj_samples, obj_mlp, latent_obj, out_nocs=True)
+            obj_rgb, obj_sigma, nocs_obj, sem_logits = predict(obj_samples, obj_mlp, latent_obj, out_nocs = True)
             fg_rgb, fg_sigma = predict(fg_samples, fg_mlp, latent_fg)
             bg_rgb, bg_sigma = predict(bg_samples, bg_mlp, latent_bg)
 
 
-            obj_comp_rgb, obj_acc, obj_weights, bg_lambda_obj, obj_nocs = helper.volumetric_rendering(
+            obj_comp_rgb, obj_acc, obj_weights, bg_lambda_obj, obj_nocs, sem_map = helper.volumetric_rendering(
                 obj_rgb,
                 obj_sigma,
                 obj_t_vals,
@@ -376,13 +375,13 @@ class NeRFPP_TP(nn.Module):
             )
 
             comp_rgb = obj_comp_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
-            ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc, obj_nocs))
+            ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc, obj_nocs, sem_map))
 
         return ret
 
 
 # @gin.configurable()
-class LitNeRFPP_CO_TP_NOCS(LitModel):
+class LitNeRFPP_CO_GP_NOCS(LitModel):
     def __init__(
         self,
         hparams,
@@ -398,14 +397,14 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
                 print(name, value)
                 setattr(self, name, value)
         self.hparams.update(vars(hparams))
-        super(LitNeRFPP_CO_TP_NOCS, self).__init__()
-        self.model = NeRFPP_TP()
+        super(LitNeRFPP_CO_GP_NOCS, self).__init__()
+        self.model = NeRFPP_GP()
 
     def setup(self, stage: Optional[str] = None) -> None:
 
         dataset = dataset_dict[self.hparams.dataset_name]
         
-        if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi_obj' or self.hparams.dataset_name =='pd_multi_obj_ae' or self.hparams.dataset_name =='pd_multi_obj_ae_nocs':
+        if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi_obj' or self.hparams.dataset_name =='pd_multi_obj_ae':
             kwargs_train = {'root_dir': self.hparams.root_dir,
                              'img_wh': tuple(self.hparams.img_wh),
                                 'white_back': self.hparams.white_back,
@@ -419,7 +418,7 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
             kwargs_test = {'root_dir': self.hparams.root_dir,
                             'img_wh': tuple(self.hparams.img_wh),
                             'white_back': self.hparams.white_back}
-            self.test_dataset = dataset(split='val', eval_inference=True, **kwargs_test)
+            self.test_dataset = dataset(split='train', **kwargs_test)
             self.near = self.test_dataset.near
             self.far = self.test_dataset.far
             self.white_bkgd = self.test_dataset.white_back
@@ -432,8 +431,7 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
             self.white_bkgd = self.train_dataset.white_back
 
     def training_step(self, batch, batch_idx):
-        
-        eps = 1e-6
+
         for k,v in batch.items():
             batch[k] = v.squeeze(0)
 
@@ -459,42 +457,27 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
         loss1 = helper.img2mse(rgb_fine, target)
         loss = loss1 + loss0
 
-        if loss.isnan(): loss=eps
-        else: loss = loss
-
         mask = batch["instance_mask"].view(-1, 1).repeat(1, 3)
         loss2 = helper.img2mse(obj_rgb_coarse[mask], target[mask])
         loss3 = helper.img2mse(obj_rgb_fine[mask], target[mask])
         masked_rgb_loss = (loss2 + loss3)
+        self.log("train/masked_rgb_loss", masked_rgb_loss, on_step=True)
+        # loss += masked_rgb_loss
+        loss += masked_rgb_loss
 
-        if masked_rgb_loss.isnan(): masked_rgb_loss=eps
-        else: masked_rgb_loss = masked_rgb_loss
-
+        #NOCS loss
         loss4 = helper.img2mse(nocs_coarse[mask], target_nocs[mask])
         loss5 = helper.img2mse(nocs_fine[mask], target_nocs[mask])
         masked_nocs_loss = (loss4 + loss5)
-
-        if masked_nocs_loss.isnan(): masked_nocs_loss=eps
-        else: masked_nocs_loss = masked_nocs_loss
-
-
-        self.log("train/masked_rgb_loss", masked_rgb_loss, on_step=True)
         self.log("train/masked_nocs_loss", masked_nocs_loss, on_step=True)
-        # loss += masked_rgb_loss
-
-        loss += masked_rgb_loss
         loss += masked_nocs_loss
 
+
         #opacity loss
-        opacity_loss = self.opacity_loss(
+        opacity_loss = self.opacity_loss_CE(
                 rendered_results, batch["instance_mask"].view(-1)
-            )
-
-        if opacity_loss.isnan(): opacity_loss=eps
-        else: opacity_loss = opacity_loss
-
-        # We might not need opacity loss if we are supplying object masks
-        self.log("train/opacity_loss", opacity_loss, on_step=True)
+            )     
+        self.log("train/sem_map_loss", opacity_loss, on_step=True)
         loss += opacity_loss
 
         psnr0 = helper.mse2psnr(loss0)
@@ -504,6 +487,7 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
         self.log("train/psnr0", psnr0, on_step=True, prog_bar=True, logger=True)
         self.log("train/loss", loss, on_step=True)
         self.log("train/lr", helper.get_learning_rate(self.optimizers()))
+
         return loss
 
     def render_rays(self, batch):
@@ -528,15 +512,13 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
             ret["fg_rgb"] +=[rendered_results_chunk[1][1]]
             ret["bg_rgb"] +=[rendered_results_chunk[1][2]]
             ret["obj_rgb"] +=[rendered_results_chunk[1][3]]
-            ret["obj_acc"] +=[rendered_results_chunk[1][6]]
+            ret["obj_acc"] +=[rendered_results_chunk[1][8]]
             ret["nocs"] +=[rendered_results_chunk[1][7]]
             # for k, v in rendered_results_chunk[1].items():
             #     ret[k] += [v]
         for k, v in ret.items():
             ret[k] = torch.cat(v, 0)
         psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
-        ssim_ = self.ssim_legacy(ret["comp_rgb"], batch["target"]).mean()
-        lpips_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
         self.log("val/psnr", psnr_.item(), on_step=True, prog_bar=True, logger=True)
         return ret
 
@@ -568,8 +550,8 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
         self.model.encode(batch["src_imgs"], batch["src_poses"], batch["src_focal"], batch["src_c"])
         W,H = self.hparams.img_wh
         ret = self.render_rays(batch)
-        rank = dist.get_rank()
-        # rank =0
+        # rank = dist.get_rank()
+        rank =0
         if rank==0:
             if batch_idx == self.random_batch:
                 grid_img = visualize_val_fb_bg_rgb_opacity_nocs(
@@ -640,7 +622,7 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
         return DataLoader(self.test_dataset,
                         shuffle=False,
                         num_workers=4,
-                        batch_size=1,
+                        batch_size=self.hparams.batch_size,
                         pin_memory=True)
 
     # def validation_epoch_end(self, outputs):
@@ -705,4 +687,23 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
             )
         ).mean()  
         #
+        # return loss*opacity_lambda
         return loss*opacity_lambda
+
+    def opacity_loss_CE(self, rendered_results, instance_mask):
+        criterion = nn.BCEWithLogitsLoss()
+        loss = (
+            criterion(
+                torch.clamp(rendered_results[0][8], 0, 1),
+                instance_mask.float(),
+            )
+        ).mean()
+        loss += (
+            criterion(
+                torch.clamp(rendered_results[1][8], 0, 1),
+                instance_mask.float(),
+            )
+        ).mean()  
+        #
+        # return loss*opacity_lambda
+        return loss

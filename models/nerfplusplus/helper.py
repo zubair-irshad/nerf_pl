@@ -76,7 +76,7 @@ def pos_enc(x, min_deg, max_deg):
     return torch.cat([x] + [four_feat], dim=-1)
 
 
-def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_far=None, nocs=None, out_depth=None):
+def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_far=None, nocs=None, sem_logits, out_depth=None):
 
     eps = 1e-10
 
@@ -98,7 +98,8 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_fa
 
     if nocs is not None:
         comp_nocs = (weights[..., None] * nocs).sum(dim=-2)
-        return comp_rgb, acc, weights, bg_lambda, comp_nocs
+        sem_map = (weights * sem_logits).sum(dim=-1)  # [N_rays, num_class]
+        return comp_rgb, acc, weights, bg_lambda, comp_nocs, sem_map
     else:
         if out_depth is not None:
             comp_depth = (weights * t_vals).sum(dim=-1)
