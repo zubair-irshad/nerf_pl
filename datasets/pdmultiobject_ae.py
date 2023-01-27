@@ -403,13 +403,20 @@ class PDMultiObject_AE(Dataset):
             #src_views_num = np.sort(np.random.choice(NV, src_views, replace=False))
             # src_views_num = np.random.randint(0, 15, 3)
 
-            # src_views_num = [7, 28, 39, 50, 64, 66, 75]
-            # src_views_num = [7, 28, 50, 66, 75]
-            src_views_num = [7, 50, 66]
-            # src_views_num = [7]
-
             if self.eval_inference is not None:
                 num = int(self.eval_inference[0])
+
+                if num ==3:
+                    src_views_num = [7, 50, 66]
+                elif num ==5:
+                    src_views_num = [7, 28, 50, 66, 75]
+                elif num ==7:
+                    src_views_num = [7, 28, 39, 50, 64, 66, 75]
+                elif num ==9:
+                    src_views_num = [7, 21, 28, 39, 45 50, 64, 66, 75]
+                elif num ==1:
+                    src_views_num = [7]
+                    
                 all_num = list(range(0,100))
                 eval_list = list(set(all_num).difference(src_views_num))
                 # dest_view_num = idx
