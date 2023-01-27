@@ -410,7 +410,6 @@ class PDMultiObject_AE(Dataset):
 
             if self.eval_inference is not None:
                 num = int(self.eval_inference[0])
-
                 if num ==3:
                     src_views_num = [7, 50, 66]
                 elif num ==5:
@@ -426,12 +425,13 @@ class PDMultiObject_AE(Dataset):
                 eval_list = list(set(all_num).difference(src_views_num))
                 # dest_view_num = eval_list[idx]
                 dest_view_num = eval_list[idx]+100
+            
             else:
-                dest_view_num = np.random.randint(0, NV - src_views)
-                for vs in range(src_views):
-                    dest_view_num += dest_view_num >= src_views_num[vs]
-
-            print("source view_num, dest_view_num", src_views_num, dest_view_num)
+                src_views_num = [7, 50, 66]
+                dest_view_num = np.random.randint(0, 100) + 100
+                # dest_view_num = np.random.randint(0, NV - src_views)
+                # for vs in range(src_views):
+                #     dest_view_num += dest_view_num >= src_views_num[vs]
             
             dest_view_num = [dest_view_num]
             print("dest_view_num", dest_view_num)    

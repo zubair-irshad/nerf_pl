@@ -39,7 +39,7 @@ random.seed(0)
 
 def main(hparams):
     if hparams.exp_type == 'pixelnerf':
-        system = LitNeRFPP_CO_TP(hparams=hparams)
+        system = LitPixelNeRF(hparams=hparams)
     elif hparams.exp_type == 'vanilla':
         system = LitNeRF(hparams=hparams) # Needs to modify this to train for 3 test images
     elif hparams.exp_type == 'groundplanar':
