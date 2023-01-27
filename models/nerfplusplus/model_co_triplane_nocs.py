@@ -95,7 +95,9 @@ class NeRFPPMLP(nn.Module):
 
         if self.out_nocs:
             self.nocs_layer = nn.Linear(netwidth, num_rgb_channels)
+            self.ins_layer = nn.Linear(netwidth, 1)
             init.xavier_uniform_(self.nocs_layer.weight)
+            init.xavier_uniform_(self.ins_layer.weight)
 
         init.xavier_uniform_(self.bottleneck_layer.weight)
         init.xavier_uniform_(self.density_layer.weight)
@@ -121,7 +123,8 @@ class NeRFPPMLP(nn.Module):
         if out_nocs:
             #Could consider detaching the features as mentioned in: https://github.com/vLAR-group/DM-NeRF/blob/082da8d64c6d7d77936f53d16b1a61ca35b1f9b7/networks/dm_nerf.py#L95
             raw_nocs = self.nocs_layer(x).reshape(-1, num_samples, self.num_rgb_channels)
-
+            sem_logits = self.ins_layer(x).reshape(-1, num_samples, 1)
+            
         bottleneck = self.bottleneck_layer(x)
         condition_tile = torch.tile(condition[:, None, :], (1, num_samples, 1)).reshape(
             -1, condition.shape[-1]
@@ -134,7 +137,7 @@ class NeRFPPMLP(nn.Module):
         raw_rgb = self.rgb_layer(x).reshape(-1, num_samples, self.num_rgb_channels)
 
         if out_nocs:
-            return raw_rgb, raw_density, raw_nocs
+            return raw_rgb, raw_density, raw_nocs, sem_logits
         else:
             return raw_rgb, raw_density
 
@@ -291,7 +294,7 @@ class NeRFPP_TP(nn.Module):
                     self.max_deg_point,
                 )
                 if out_nocs:
-                    raw_rgb, raw_sigma, raw_nocs = mlp(samples_enc, viewdirs_enc, latent, out_nocs=True)
+                    raw_rgb, raw_sigma, raw_nocs, sem_logits = mlp(samples_enc, viewdirs_enc, latent, out_nocs=True)
                 else:
                     raw_rgb, raw_sigma = mlp(samples_enc, viewdirs_enc, latent)
 
@@ -304,7 +307,7 @@ class NeRFPP_TP(nn.Module):
                 sigma = self.sigma_activation(raw_sigma)
                 if out_nocs:
                     nocs = self.rgb_activation(raw_nocs)
-                    return rgb, sigma, nocs
+                    return rgb, sigma, nocs, sem_logits
                 else:
                     return rgb, sigma
 
@@ -341,12 +344,12 @@ class NeRFPP_TP(nn.Module):
             # latent_bg = latent_bg.squeeze(0).permute(1,0).reshape(B, N_samples, -1)
 
             #Get predictions for each MLP
-            obj_rgb, obj_sigma, nocs_obj = predict(obj_samples, obj_mlp, latent_obj, out_nocs=True)
+            obj_rgb, obj_sigma, nocs_obj, sem_logits = predict(obj_samples, obj_mlp, latent_obj, out_nocs = True)
             fg_rgb, fg_sigma = predict(fg_samples, fg_mlp, latent_fg)
             bg_rgb, bg_sigma = predict(bg_samples, bg_mlp, latent_bg)
 
 
-            obj_comp_rgb, obj_acc, obj_weights, bg_lambda_obj, obj_nocs = helper.volumetric_rendering(
+            obj_comp_rgb, obj_acc, obj_weights, bg_lambda_obj, obj_nocs, sem_map = helper.volumetric_rendering(
                 obj_rgb,
                 obj_sigma,
                 obj_t_vals,
@@ -354,6 +357,7 @@ class NeRFPP_TP(nn.Module):
                 white_bkgd=white_bkgd,
                 in_sphere=True,
                 t_far=far_obj,
+                sem_logits = sem_logits,
                 nocs = nocs_obj
             )
             
@@ -376,7 +380,7 @@ class NeRFPP_TP(nn.Module):
             )
 
             comp_rgb = obj_comp_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
-            ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc, obj_nocs))
+            ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc, obj_nocs, sem_map))
 
         return ret
 
@@ -451,7 +455,7 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
 
         rgb_coarse = rendered_results[0][0]
         rgb_fine = rendered_results[1][0]
-        
+
         target = batch["target"]
         target_nocs = batch["nocs_2d"]
 
@@ -486,15 +490,14 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
         loss += masked_nocs_loss
 
         #opacity loss
-        opacity_loss = self.opacity_loss(
+        opacity_loss = self.opacity_loss_CE(
                 rendered_results, batch["instance_mask"].view(-1)
-            )
-
+            )  
         if opacity_loss.isnan(): opacity_loss=eps
         else: opacity_loss = opacity_loss
 
         # We might not need opacity loss if we are supplying object masks
-        self.log("train/opacity_loss", opacity_loss, on_step=True)
+        self.log("train/sem_map_loss", opacity_loss, on_step=True)
         loss += opacity_loss
 
         psnr0 = helper.mse2psnr(loss0)
