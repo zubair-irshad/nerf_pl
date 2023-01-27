@@ -29,6 +29,12 @@ from models.vanilla_nerf.util import *
 from models.vanilla_nerf.encoder import *
 import wandb
 
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+np.random.seed(0)   
+random.seed(0)
+
 class NeRFMLP(nn.Module):
     def __init__(
         self,
