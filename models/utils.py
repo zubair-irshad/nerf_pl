@@ -41,10 +41,10 @@ def store_depth_img(dirpath, depths):
 
 def store_depth_raw(dirpath, depths):
     depth_maps = []
-    for (i, depth) in enumerate(depths.detach().cpu().numpy()):
+    for (i, depth) in enumerate(depths):
         depthname = f"depth_raw{str(i).zfill(3)}"
         depthpath = os.path.join(dirpath, depthname)
-        savez_compressed(depthpath, depth)
+        savez_compressed(depthpath, depth.detach().cpu().numpy())
 
 
 def store_video(dirpath, rgbs, depths):
