@@ -119,7 +119,7 @@ def read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_val, out
 #         return all_c2w_train, all_c2w_test, focal, img_wh
 
 class PDMultiObject_AE(Dataset):
-    def __init__(self, root_dir, split='train', img_wh=(640, 480), white_back=False, model_type = "Vanilla", eval_inference=False):
+    def __init__(self, root_dir, split='train', img_wh=(640, 480), white_back=False, model_type = "Vanilla", eval_inference=None):
         self.split = split
         self.img_wh = img_wh
         self.define_transforms()
@@ -226,8 +226,9 @@ class PDMultiObject_AE(Dataset):
             return self.samples_per_epoch
             # return len(self.ids)
         elif self.split == 'val':
-            if self.eval_inference:
-                return len(self.ids)*100
+            if self.eval_inference is not None:
+                num = int(self.eval_inference[0])
+                return len(self.ids)*(100-num)
             else:
                 return len(self.ids)
         else:
@@ -339,7 +340,7 @@ class PDMultiObject_AE(Dataset):
                 
         # elif self.split == 'val': # create data for each image separately
         elif self.split=='val':
-            if self.eval_inference:
+            if self.eval_inference is not None:
                 instance_dir = self.ids[0]
             else:
                 instance_dir = self.ids[idx]
@@ -400,8 +401,12 @@ class PDMultiObject_AE(Dataset):
             src_views_num = [7, 50, 66]
             # src_views_num = [7]
 
-            if self.eval_inference:
-                dest_view_num = idx
+            if self.eval_inference is not None:
+                num = int(self.eval_inference[0])
+                all_num = list(range(0,100))
+                eval_list = list(set(all_num).difference(src_views_num))
+                # dest_view_num = idx
+                dest_view_num = eval_list[idx]
             else:
                 dest_view_num = np.random.randint(0, NV - src_views)
                 for vs in range(src_views):
