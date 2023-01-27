@@ -28,7 +28,7 @@ from utils.train_helper import *
 from models.vanilla_nerf.util import *
 from models.vanilla_nerf.encoder import *
 import wandb
-
+import random
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
