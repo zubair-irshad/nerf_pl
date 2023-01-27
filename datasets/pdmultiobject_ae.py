@@ -364,7 +364,9 @@ class PDMultiObject_AE(Dataset):
             poses = list()
             focals = list()
             all_c = list()
-            NV = 100
+            # NV = 100
+
+            NV = 200
             src_views = 3
             for train_image_id in range(0, NV):
                 cam_rays, cam_view_dirs, cam_rays_d, img, instance_mask, camera_radii, c2w, f, c =  self.read_data(instance_dir, train_image_id)
