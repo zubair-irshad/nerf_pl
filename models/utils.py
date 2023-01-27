@@ -25,7 +25,7 @@ def store_image(dirpath, rgbs):
 def store_depth(dirpath, rgbs):
     depth_maps = []
     for (i, depth) in enumerate(rgbs):
-        depth_maps += [depth_pred.detach().cpu().numpy()]
+        depth_maps += [depth.detach().cpu().numpy()]
 
     min_depth = np.min(depth_maps)
     max_depth = np.max(depth_maps)
