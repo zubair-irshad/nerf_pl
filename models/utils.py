@@ -34,7 +34,7 @@ def store_depth(dirpath, rgbs):
 
     for depth in depth_imgs_:
         depthname = f"depth{str(i).zfill(3)}.jpg"
-        depth_img = Image.fromarray(to8b(rgb.detach().cpu().numpy()))
+        depth_img = Image.fromarray(depth)
         depthpath = os.path.join(dirpath, depthname)
         depth_img.save(depthpath)
 
