@@ -408,7 +408,7 @@ class LitPixelNeRF(LitModel):
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
                           shuffle=True,
-                          num_workers=8,
+                          num_workers=32,
                           batch_size=self.hparams.batch_size,
                           pin_memory=True)
 
