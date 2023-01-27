@@ -353,6 +353,7 @@ class NeRFPP_GP(nn.Module):
                 white_bkgd=white_bkgd,
                 in_sphere=True,
                 t_far=far_obj,
+                sem_logits = sem_logits,
                 nocs = nocs_obj
             )
             

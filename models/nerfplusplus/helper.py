@@ -76,7 +76,7 @@ def pos_enc(x, min_deg, max_deg):
     return torch.cat([x] + [four_feat], dim=-1)
 
 
-def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_far=None, nocs=None, sem_logits, out_depth=None):
+def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_far=None, nocs=None, sem_logits=None, out_depth=None):
 
     eps = 1e-10
 
