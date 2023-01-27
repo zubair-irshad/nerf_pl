@@ -348,6 +348,9 @@ class LitPixelNeRF(LitModel):
         self.log("val/psnr", psnr_.item(), on_step=True, prog_bar=True, logger=True)
         return ret
 
+    def on_validation_start(self):
+        self.random_batch = np.random.randint(5, size=1)[0]
+
     def validation_step(self, batch, batch_idx):
         for k,v in batch.items():
             batch[k] = v.squeeze()
@@ -359,12 +362,13 @@ class LitPixelNeRF(LitModel):
         ret = self.render_rays(batch)
         rank = dist.get_rank()
         if rank==0:
-            grid_img = visualize_val_rgb(
-                (W,H), batch, ret
-            )
-            self.logger.experiment.log({
-                "val/GT_pred rgb": wandb.Image(grid_img)
-            })
+            if batch_idx == self.random_batch:
+                grid_img = visualize_val_rgb(
+                    (W,H), batch, ret
+                )
+                self.logger.experiment.log({
+                    "val/GT_pred rgb": wandb.Image(grid_img)
+                })
 
     def test_step(self, batch, batch_idx):
         return self.render_rays(batch, batch_idx)
