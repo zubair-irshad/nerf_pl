@@ -93,9 +93,8 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_fa
     bg_lambda = T[..., -1:] if in_sphere else None
     accum_prod = torch.cat([torch.ones_like(T[..., -1:]), T[..., :-1]], dim=-1)
     weights = alpha * accum_prod
-
-    a = weights[..., None] * rgb
     comp_rgb = (weights[..., None] * rgb).sum(dim=-2)
+    print("comp_rgb", comp_rgb.shape)
     acc = weights.sum(dim=-1)
 
     if nocs is not None:
@@ -104,6 +103,7 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_fa
     else:
         if out_depth is not None:
             comp_depth = (weights * t_vals).sum(dim=-1)
+            print("comp_depth", comp_depth.shape)
             return comp_rgb, acc, weights, bg_lambda, comp_depth
         else:
             return comp_rgb, acc, weights, bg_lambda
