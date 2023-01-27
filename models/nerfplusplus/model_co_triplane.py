@@ -569,7 +569,7 @@ class LitNeRFPP_CO_TP(LitModel):
         test_output["target"] = batch["target"]
         test_output["rgb"] = ret["comp_rgb"]
         test_output["obj_rgb"] = ret["obj_rgb"]
-        test_output["rgb"] = ret["depth"]
+        test_output["depth"] = ret["depth"]
         print("ret[comp_rgb], ret[comp_rgb]", ret["comp_rgb"].shape, ret["depth"].shape, ret["obj_rgb"].shape)
         return test_output
 
