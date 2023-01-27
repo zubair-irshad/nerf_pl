@@ -44,7 +44,7 @@ def store_depth_raw(dirpath, depths):
     for (i, depth) in enumerate(depths):
         depthname = f"depth_raw{str(i).zfill(3)}"
         depthpath = os.path.join(dirpath, depthname)
-        savez_compressed(depthpath, depthname)
+        savez_compressed(depthpath, depth)
 
 
 def store_video(dirpath, rgbs, depths):
