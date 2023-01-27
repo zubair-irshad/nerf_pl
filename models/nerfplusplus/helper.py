@@ -98,7 +98,7 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_fa
 
     if nocs is not None:
         comp_nocs = (weights[..., None] * nocs).sum(dim=-2)
-        sem_map = (weights * sem_logits).sum(dim=-1)  # [N_rays, num_class]
+        sem_map = (weights * sem_logits.unsqueeze(-1)).sum(dim=-1)  # [N_rays, num_class]
         return comp_rgb, acc, weights, bg_lambda, comp_nocs, sem_map
     else:
         if out_depth is not None:
