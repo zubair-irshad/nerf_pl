@@ -709,3 +709,21 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
         ).mean()  
         #
         return loss*opacity_lambda
+
+    def opacity_loss_CE(self, rendered_results, instance_mask):
+        criterion = nn.BCEWithLogitsLoss()
+        loss = (
+            criterion(
+                torch.clamp(rendered_results[0][8], 0, 1),
+                instance_mask.float(),
+            )
+        ).mean()
+        loss += (
+            criterion(
+                torch.clamp(rendered_results[1][8], 0, 1),
+                instance_mask.float(),
+            )
+        ).mean()  
+        #
+        # return loss*opacity_lambda
+        return loss

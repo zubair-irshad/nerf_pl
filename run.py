@@ -49,6 +49,8 @@ def main(hparams):
         system = LitNeRFPP_CO_GP_NOCS(hparams=hparams)
     elif hparams.exp_type == 'triplanar':
         system = LitNeRFPP_CO_TP(hparams=hparams)
+    elif hparams.exp_type == 'triplanar_nocs':
+        system = LitNeRFPP_CO_TP_NOCS(hparams=hparams)
 
     # ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.exp_name}',
     #                           filename='{epoch:d}',
