@@ -357,8 +357,7 @@ class LitPixelNeRF(LitModel):
 
         W,H = self.hparams.img_wh
         ret = self.render_rays(batch)
-        # rank = dist.get_rank()
-        rank =0
+        rank = dist.get_rank()
         if rank==0:
             grid_img = visualize_val_rgb(
                 (W,H), batch, ret
