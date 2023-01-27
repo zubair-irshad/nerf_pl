@@ -140,7 +140,7 @@ class PixelNeRF(nn.Module):
         use_viewdirs: bool = True,
         noise_std: float = 0.0,
         lindisp: bool = False,
-        num_src_views: int = 5
+        num_src_views: int = 3
     ):
         for name, value in vars().items():
             if name not in ["self", "__class__"]:
@@ -347,9 +347,6 @@ class LitPixelNeRF(LitModel):
             batch[k] = v.squeeze()
             if k =='radii':
                 batch[k] = v.unsqueeze(-1)
-
-        for k,v in batch.items():
-            print(k,v.shape)
         self.model.encode(batch["src_imgs"])
 
         W,H = self.hparams.img_wh
