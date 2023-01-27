@@ -413,7 +413,7 @@ class PDMultiObject_AE(Dataset):
                 elif num ==7:
                     src_views_num = [7, 28, 39, 50, 64, 66, 75]
                 elif num ==9:
-                    src_views_num = [7, 21, 28, 39, 45 50, 64, 66, 75]
+                    src_views_num = [7, 21, 28, 39, 45, 50, 64, 66, 75]
                 elif num ==1:
                     src_views_num = [7]
                     
