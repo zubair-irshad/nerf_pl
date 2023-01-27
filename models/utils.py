@@ -22,9 +22,9 @@ def store_image(dirpath, rgbs):
         imgpath = os.path.join(dirpath, imgname)
         rgbimg.save(imgpath)
 
-def store_depth(dirpath, rgbs):
+def store_depth(dirpath, depths):
     depth_maps = []
-    for (i, depth) in enumerate(rgbs):
+    for (i, depth) in enumerate(depths):
         depth_maps += [depth.detach().cpu().numpy()]
 
     min_depth = np.min(depth_maps)
@@ -32,7 +32,7 @@ def store_depth(dirpath, rgbs):
     depth_imgs = (depth_maps - np.min(depth_maps)) / (max(np.max(depth_maps) - np.min(depth_maps), 1e-8))
     depth_imgs_ = [cv2.applyColorMap((img * 255).astype(np.uint8), cv2.COLORMAP_JET) for img in depth_imgs]
 
-    for depth in depth_imgs_:
+    for (i, depth) in enumerate(depth_imgs_):
         depthname = f"depth{str(i).zfill(3)}.jpg"
         depth_img = Image.fromarray(depth)
         depthpath = os.path.join(dirpath, depthname)

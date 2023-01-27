@@ -535,8 +535,8 @@ class LitNeRFPP_CO_TP(LitModel):
 
     def render_rays_test(self, batch):
 
-        for k,v in batch.items():
-            print(k,v.shape)
+        # for k,v in batch.items():
+        #     print(k,v.shape)
         B = batch["rays_o"].shape[0]
         ret = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
@@ -570,7 +570,7 @@ class LitNeRFPP_CO_TP(LitModel):
         test_output["rgb"] = ret["comp_rgb"]
         test_output["obj_rgb"] = ret["obj_rgb"]
         test_output["depth"] = ret["depth"]
-        print("ret[comp_rgb], ret[comp_rgb]", ret["comp_rgb"].shape, ret["depth"].shape, ret["obj_rgb"].shape)
+        # print("ret[comp_rgb], ret[comp_rgb]", ret["comp_rgb"].shape, ret["depth"].shape, ret["obj_rgb"].shape)
         return test_output
 
     # def render_rays(self, batch, batch_idx):
@@ -680,7 +680,7 @@ class LitNeRFPP_CO_TP(LitModel):
     def test_dataloader(self):
         return DataLoader(self.test_dataset,
                         shuffle=False,
-                        num_workers=4,
+                        num_workers=1,
                         batch_size=1,
                         pin_memory=True)
 
