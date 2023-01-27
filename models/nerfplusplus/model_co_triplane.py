@@ -353,9 +353,7 @@ class NeRFPP_TP(nn.Module):
                 )
 
                 comp_rgb = obj_comp_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
-                comp_depth = obj_depth + fg_depth + bg_lambda * bg_depth
-                print("obj_depth", obj_depth.shape, fg_depth.shape, bg_depth.shape, bg_lambda.shape)
-                print("comp_depth", comp_depth.shape)
+                comp_depth = obj_depth + fg_depth + bg_lambda.squeeze(-1) * bg_depth
                 ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc, comp_depth))
 
             else:
