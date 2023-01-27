@@ -190,8 +190,9 @@ class PDMultiObject_AE(Dataset):
             #all_c2w, _, focal, img_size = read_poses(pose_dir_train, pose_dir_val, img_files= img_files)
             # _, all_c2w,_, focal, img_size, self.RTs = read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_test, output_boxes=True)
             # img_files = img_files_train[100:]
-            all_c2w, _, _, focal, img_size, self.RTs = read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_test, output_boxes=True)
-            img_files = img_files_train[:100]
+            all_c2w_train, all_c2w_val, _, focal, img_size, self.RTs = read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_test, output_boxes=True)
+            all_c2w =  np.concatenate((all_c2w_train, all_c2w_test), axis=0)
+            img_files = img_files_train
             base_dir = base_dir_train
         elif self.split == 'test':
             #all_c2w, _, focal, img_size = read_poses(pose_dir_train, pose_dir_val, img_files= img_files)
@@ -421,8 +422,8 @@ class PDMultiObject_AE(Dataset):
                     
                 all_num = list(range(0,100))
                 eval_list = list(set(all_num).difference(src_views_num))
-                # dest_view_num = idx
-                dest_view_num = eval_list[idx]
+                # dest_view_num = eval_list[idx]
+                dest_view_num = eval_list[idx]+100
             else:
                 dest_view_num = np.random.randint(0, NV - src_views)
                 for vs in range(src_views):
