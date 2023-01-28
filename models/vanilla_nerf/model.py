@@ -274,6 +274,9 @@ class LitNeRF(LitModel):
         ret["rgb"] = rgb_fine
         return ret
 
+    def on_validation_start(self):
+        self.random_batch = np.random.randint(5, size=1)[0]
+
     def validation_step(self, batch, batch_idx):
         for k,v in batch.items():
             batch[k] = v.squeeze()
@@ -281,6 +284,20 @@ class LitNeRF(LitModel):
                 batch[k] = v.unsqueeze(-1)
             if k == "near_obj" or k== "far_obj":
                 batch[k] = batch[k].unsqueeze(-1)
+
+        W,H = self.hparams.img_wh
+        ret = self.render_rays(batch, , batch_idx)
+        rank = dist.get_rank()
+        # rank =0
+        if rank==0:
+            if batch_idx == self.random_batch:
+                grid_img = visualize_val_rgb(
+                    (W,H), batch, ret
+                )
+                self.logger.experiment.log({
+                    "val/GT_pred rgb": wandb.Image(grid_img)
+                })
+
         return self.render_rays(batch, batch_idx)
 
     def test_step(self, batch, batch_idx):
@@ -342,16 +359,16 @@ class LitNeRF(LitModel):
                         batch_size=1,
                         pin_memory=True)
 
-    def validation_epoch_end(self, outputs):
-        val_image_sizes = self.trainer.datamodule.val_image_sizes
-        rgbs = self.alter_gather_cat(outputs, "rgb", val_image_sizes)
-        targets = self.alter_gather_cat(outputs, "target", val_image_sizes)
-        psnr_mean = self.psnr_each(rgbs, targets).mean()
-        ssim_mean = self.ssim_each(rgbs, targets).mean()
-        lpips_mean = self.lpips_each(rgbs, targets).mean()
-        self.log("val/psnr", psnr_mean.item(), on_epoch=True, sync_dist=True)
-        self.log("val/ssim", ssim_mean.item(), on_epoch=True, sync_dist=True)
-        self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
+    # def validation_epoch_end(self, outputs):
+    #     val_image_sizes = self.trainer.datamodule.val_image_sizes
+    #     rgbs = self.alter_gather_cat(outputs, "rgb", val_image_sizes)
+    #     targets = self.alter_gather_cat(outputs, "target", val_image_sizes)
+    #     psnr_mean = self.psnr_each(rgbs, targets).mean()
+    #     ssim_mean = self.ssim_each(rgbs, targets).mean()
+    #     lpips_mean = self.lpips_each(rgbs, targets).mean()
+    #     self.log("val/psnr", psnr_mean.item(), on_epoch=True, sync_dist=True)
+    #     self.log("val/ssim", ssim_mean.item(), on_epoch=True, sync_dist=True)
+    #     self.log("val/lpips", lpips_mean.item(), on_epoch=True, sync_dist=True)
 
     def test_epoch_end(self, outputs):
         dmodule = self.trainer.datamodule
