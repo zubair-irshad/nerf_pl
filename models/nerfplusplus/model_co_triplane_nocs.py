@@ -567,8 +567,8 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
 
             # for k, v in rendered_results_chunk[1].items():
             #     ret[k] += [v]
-    for k, v in ret.items():
-            ret[k] = torch.cat(v, 0)
+        for k, v in ret.items():
+                ret[k] = torch.cat(v, 0)
 
         # for k,v in ret.items():
         #     print(k,v.shape)
