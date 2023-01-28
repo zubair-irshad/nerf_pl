@@ -11,7 +11,7 @@
 import os
 from random import random
 from typing import *
-
+from datasets import dataset_dict
 import numpy as np
 import torch
 import torch.nn as nn
@@ -204,9 +204,33 @@ class LitNeRF(LitModel):
         self.model = NeRF()
 
     def setup(self, stage: Optional[str] = None) -> None:
-        self.near = self.trainer.datamodule.near
-        self.far = self.trainer.datamodule.far
-        self.white_bkgd = self.trainer.datamodule.white_bkgd
+        dataset = dataset_dict[self.hparams.dataset_name]
+        
+        if self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi_obj' or self.hparams.dataset_name =='pd_multi_obj_ae' or self.hparams.dataset_name =='pd_multi_obj_ae_nocs':
+            kwargs_train = {'root_dir': self.hparams.root_dir,
+                             'img_wh': tuple(self.hparams.img_wh),
+                                'white_back': self.hparams.white_back,
+                                'model_type': 'nerfpp'}
+            kwargs_val = {'root_dir': self.hparams.root_dir,
+                            'img_wh': tuple(self.hparams.img_wh),
+                                'white_back': self.hparams.white_back,
+                                'model_type': 'nerfpp'}
+
+        if self.hparams.run_eval:        
+            kwargs_test = {'root_dir': self.hparams.root_dir,
+                            'img_wh': tuple(self.hparams.img_wh),
+                            'white_back': self.hparams.white_back}
+            self.test_dataset = dataset(split='val', eval_inference=True, **kwargs_test)
+            self.near = self.test_dataset.near
+            self.far = self.test_dataset.far
+            self.white_bkgd = self.test_dataset.white_back
+
+        else:
+            self.train_dataset = dataset(split='train', **kwargs_train)
+            self.val_dataset = dataset(split='val', **kwargs_val)
+            self.near = self.train_dataset.near
+            self.far = self.train_dataset.far
+            self.white_bkgd = self.train_dataset.white_back
 
     def training_step(self, batch, batch_idx):
 
@@ -281,6 +305,27 @@ class LitNeRF(LitModel):
             pg["lr"] = new_lr
 
         optimizer.step(closure=optimizer_closure)
+
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset,
+                          shuffle=True,
+                          num_workers=32,
+                          batch_size=self.hparams.batch_size,
+                          pin_memory=True)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_dataset,
+                          shuffle=False,
+                          num_workers=4,
+                          batch_size=1, # validate one image (H*W rays) at a time
+                          pin_memory=True)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset,
+                        shuffle=False,
+                        num_workers=4,
+                        batch_size=1,
+                        pin_memory=True)
 
     def validation_epoch_end(self, outputs):
         val_image_sizes = self.trainer.datamodule.val_image_sizes
