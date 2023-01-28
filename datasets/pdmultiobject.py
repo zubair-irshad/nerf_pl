@@ -142,14 +142,10 @@ class PDMultiObject(Dataset):
         self.focal *=(self.img_wh[0]/self.img_size[0])  # modify focal length to match size self.img_wh
         print("self.focal after", self.focal)
         if self.split == 'train': # create buffer of all rays and rgb data
-            self.poses = []
             self.all_rays = []
             self.all_rgbs = []
             self.all_rays_d = []
             self.all_radii = []
-            self.all_instance_masks = []
-            self.all_instance_masks_weight = []
-            self.all_instance_ids = []
 
             num = 9
             if num ==3:
@@ -251,4 +247,4 @@ class PDMultiObject(Dataset):
                     sample["radii"] = radii
                     sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
                     sample["normals"] = np.zeros_like(sample["rays_o"])
-            return sample
+        return sample

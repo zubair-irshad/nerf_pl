@@ -176,9 +176,6 @@ class NeRF(nn.Module):
                 self.max_deg_point,
             )
             viewdirs_enc = helper.pos_enc(rays["viewdirs"], 0, self.deg_view)
-
-            print("samples_enc", samples_enc.shape)
-
             raw_rgb, raw_sigma = mlp(samples_enc, viewdirs_enc)
 
             if self.noise_std > 0 and randomized:
