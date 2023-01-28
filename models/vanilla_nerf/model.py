@@ -238,9 +238,11 @@ class LitNeRF(LitModel):
             self.white_bkgd = self.train_dataset.white_back
 
     def training_step(self, batch, batch_idx):
-
         for k,v in batch.items():
             print(k,v.shape)
+
+        for k,v in batch.items():
+            batch[k] = v.squeeze(0)
         rendered_results = self.model(
             batch, self.randomized, self.white_bkgd, self.near, self.far
         )
@@ -273,6 +275,12 @@ class LitNeRF(LitModel):
         return ret
 
     def validation_step(self, batch, batch_idx):
+        for k,v in batch.items():
+            batch[k] = v.squeeze()
+            if k =='radii':
+                batch[k] = v.unsqueeze(-1)
+            if k == "near_obj" or k== "far_obj":
+                batch[k] = batch[k].unsqueeze(-1)
         return self.render_rays(batch, batch_idx)
 
     def test_step(self, batch, batch_idx):
