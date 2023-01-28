@@ -100,16 +100,6 @@ def read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_val, out
     else:
         return all_c2w_train, all_c2w_val, all_c2w_test, focal, img_wh
 
-    # all_boxes = []
-    # for k,v in data['bbox_dimensions'].items():
-    #         bbox = np.array(v)
-    #         bbox_dimension =  [(bbox[1,0]-bbox[0,0]), (bbox[1,1]-bbox[0,1]), (bbox[1,2]-bbox[0,2])]
-    #         all_boxes.append(np.array(bbox_dimension)*pose_scale_factor)
-    # all_translations = (np.array(data['obj_translations'])- obj_location)*pose_scale_factor
-    # all_rotations = data["obj_rotations"]
-    #return all_c2w_train, all_c2w_test, focal, fov, img_wh, all_boxes, all_rotations, all_translations
-
-
 class PDMultiObject(Dataset):
     def __init__(self, root_dir, split='train', img_wh=(1600, 1600), 
                 white_back = False, model_type= 'vanilla'):
@@ -129,11 +119,13 @@ class PDMultiObject(Dataset):
         # self.img_files.sort()
         #for bottle
 
-        base_dir_train = os.path.join(self.base_dir, 'train')
+        base_dir_train = os.path.join(self.root_dir, 'train')
         img_files_train = os.listdir(os.path.join(base_dir_train, 'rgb'))
         img_files_train.sort()
+
+        self.base_dir_val = base_dir_train
         
-        base_dir_test = os.path.join(self.base_dir, 'val')
+        base_dir_test = os.path.join(self.root_dir, 'val')
         img_files_test = os.listdir(os.path.join(base_dir_test, 'rgb'))
         img_files_test.sort()
 
@@ -187,7 +179,7 @@ class PDMultiObject(Dataset):
                 c2w = torch.FloatTensor(c2w)[:3, :4]
                 rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
 
-                img = Image.open(os.path.join(self.base_dir, 'rgb', img_name))                
+                img = Image.open(os.path.join(base_dir_train, 'rgb', img_name))                
                 img = img.resize((w,h), Image.LANCZOS)
                 img = self.transform(img) # (h, w, 3)
                 img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
@@ -241,7 +233,7 @@ class PDMultiObject(Dataset):
             directions = get_ray_directions(h, w, self.focal) # (h, w, 3)
             c2w = torch.FloatTensor(c2w)[:3, :4]
             rays_o, view_dirs, rays_d, radii = get_rays(directions, c2w, output_view_dirs=True, output_radii=True)
-            img = Image.open(os.path.join(self.base_dir, 'rgb', img_name))                
+            img = Image.open(os.path.join(self.base_dir_val, 'rgb', img_name))                
             img = img.resize((w,h), Image.LANCZOS)
             img = self.transform(img) # (h, w, 3)
             img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
