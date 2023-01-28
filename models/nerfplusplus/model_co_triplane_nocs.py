@@ -540,6 +540,7 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
             bg_comp_rgb = rendered_results_chunk[1][2]
             sem_map = rendered_results_chunk[1][8]
             mask = sem_map.view(-1, 1).repeat(1, 3)
+            mask = mask>0
             
             obj_rgb = np.zeros(obj_comp_rgb.shape)
             obj_rgb[mask] = obj_comp_rgb[mask]
