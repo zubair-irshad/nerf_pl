@@ -206,9 +206,9 @@ class NeRFPP_GP(nn.Module):
                 far_insphere = far
                 
                 #supress the rays for near background MLP where bounding boxes esists
-                if is_train:
-                    near_insphere[rays["instance_mask"]] = torch.zeros_like(near_insphere[rays["instance_mask"]])
-                    far_insphere[rays["instance_mask"]] = torch.zeros_like(far_insphere[rays["instance_mask"]])
+                # if is_train:
+                #     near_insphere[rays["instance_mask"]] = torch.zeros_like(near_insphere[rays["instance_mask"]])
+                #     far_insphere[rays["instance_mask"]] = torch.zeros_like(far_insphere[rays["instance_mask"]])
 
                 fg_t_vals, fg_samples = helper.sample_along_rays(
                     rays_o=rays["rays_o"],

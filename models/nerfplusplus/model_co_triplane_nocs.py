@@ -191,8 +191,8 @@ class NeRFPP_TP(nn.Module):
         near_obj, far_obj = rays["near_obj"], rays["far_obj"]
 
         # Suppress rays outside of instance masks of objects for object MLP
-        near_obj[~rays["instance_mask"]] = torch.zeros_like(near_obj[~rays["instance_mask"]])
-        far_obj[~rays["instance_mask"]] = torch.zeros_like(far_obj[~rays["instance_mask"]])
+        # near_obj[~rays["instance_mask"]] = torch.zeros_like(near_obj[~rays["instance_mask"]])
+        # far_obj[~rays["instance_mask"]] = torch.zeros_like(far_obj[~rays["instance_mask"]])
 
         #Do not Supress the near_obj far_obj to only keep ones inside the bounding box but rather keep all
         # near_obj = near
@@ -380,7 +380,7 @@ class NeRFPP_TP(nn.Module):
             )
 
             comp_rgb = obj_comp_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
-            ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_acc, obj_acc, obj_nocs, sem_map))
+            ret.append((comp_rgb, fg_comp_rgb, bg_comp_rgb, obj_comp_rgb, fg_acc, bg_lambda, obj_acc, obj_nocs, sem_map))
 
         return ret
 
@@ -467,12 +467,19 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
         else: loss = loss
 
         mask = batch["instance_mask"].view(-1, 1).repeat(1, 3)
+
+        obj_rgb_coarse[~mask] = 0
+        obj_rgb_fine[~mask] = 0
+
         loss2 = helper.img2mse(obj_rgb_coarse[mask], target[mask])
         loss3 = helper.img2mse(obj_rgb_fine[mask], target[mask])
         masked_rgb_loss = (loss2 + loss3)
 
         if masked_rgb_loss.isnan(): masked_rgb_loss=eps
         else: masked_rgb_loss = masked_rgb_loss
+
+        nocs_coarse[~mask] = 0
+        nocs_fine[~mask] = 0
 
         loss4 = helper.img2mse(nocs_coarse[mask], target_nocs[mask])
         loss5 = helper.img2mse(nocs_fine[mask], target_nocs[mask])
@@ -527,12 +534,36 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
                 batch_chunk, False, self.white_bkgd, self.near, self.far, is_train=False
             )
             #here 1 denotes fine
-            ret["comp_rgb"]+=[rendered_results_chunk[1][0]]
-            ret["fg_rgb"] +=[rendered_results_chunk[1][1]]
-            ret["bg_rgb"] +=[rendered_results_chunk[1][2]]
-            ret["obj_rgb"] +=[rendered_results_chunk[1][3]]
-            ret["obj_acc"] +=[rendered_results_chunk[1][6]]
-            ret["nocs"] +=[rendered_results_chunk[1][7]]
+            bg_lambda = rendered_results_chunk[1][5]
+            obj_comp_rgb = rendered_results_chunk[1][3]
+            fg_comp_rgb = rendered_results_chunk[1][1]
+            bg_comp_rgb = rendered_results_chunk[1][2]
+            sem_map = rendered_results_chunk[1][8]
+            mask = sem_map.view(-1, 1).repeat(1, 3)
+            
+            obj_rgb = np.zeros(obj_comp_rgb.shape)
+            obj_rgb[mask] = obj_comp_rgb[mask]
+            comp_rgb = obj_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
+            nocs = rendered_results_chunk[1][7]
+            
+            obj_nocs = np.zeros(nocs.shape)
+            obj_nocs[mask] = nocs[mask]
+
+
+            ret["obj_acc"] +=[sem_map]
+            ret["comp_rgb"]+=[comp_rgb]
+            ret["fg_rgb"] +=[fg_comp_rgb]
+            ret["bg_rgb"] +=[bg_comp_rgb]
+            ret["obj_rgb"] +=[obj_rgb]
+            ret["nocs"] +=[obj_nocs]
+
+            # ret["obj_acc"] +=[rendered_results_chunk[1][8]]
+            # ret["comp_rgb"]+=[rendered_results_chunk[1][0]]
+            # ret["fg_rgb"] +=[rendered_results_chunk[1][1]]
+            # ret["bg_rgb"] +=[rendered_results_chunk[1][2]]
+            # ret["obj_rgb"] +=[rendered_results_chunk[1][3]]
+            # ret["nocs"] +=[rendered_results_chunk[1][7]]
+
             # for k, v in rendered_results_chunk[1].items():
             #     ret[k] += [v]
         for k, v in ret.items():
