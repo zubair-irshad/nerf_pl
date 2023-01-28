@@ -168,6 +168,8 @@ class NeRF(nn.Module):
             )
             viewdirs_enc = helper.pos_enc(rays["viewdirs"], 0, self.deg_view)
 
+            print("samples_enc", samples_enc.shape)
+
             raw_rgb, raw_sigma = mlp(samples_enc, viewdirs_enc)
 
             if self.noise_std > 0 and randomized:
@@ -237,6 +239,8 @@ class LitNeRF(LitModel):
 
     def training_step(self, batch, batch_idx):
 
+        for k,v in batch.items():
+            print(k,v.shape)
         rendered_results = self.model(
             batch, self.randomized, self.white_bkgd, self.near, self.far
         )
