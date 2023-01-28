@@ -236,19 +236,19 @@ class PDMultiObject(Dataset):
                                         self.near*torch.ones_like(rays_o[:, :1]),
                                         self.far*torch.ones_like(rays_o[:, :1])],
                                         1) # (h*w, 8)  
-        if self.model_type == "vanilla":
-                sample = {
-                    "rays": rays,
-                    "rgbs": img,
-                    "img_wh": self.img_wh,
-                }
-        else:
-                sample = {}
-                sample["rays_o"] = rays[:,:3]
-                sample["rays_d"] = view_dirs
-                sample["viewdirs"] = rays[:,3:6]
-                sample["target"] = img
-                sample["radii"] = radii
-                sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
-                sample["normals"] = np.zeros_like(sample["rays_o"])
-        return sample
+            if self.model_type == "vanilla":
+                    sample = {
+                        "rays": rays,
+                        "rgbs": img,
+                        "img_wh": self.img_wh,
+                    }
+            else:
+                    sample = {}
+                    sample["rays_o"] = rays[:,:3]
+                    sample["rays_d"] = view_dirs
+                    sample["viewdirs"] = rays[:,3:6]
+                    sample["target"] = img
+                    sample["radii"] = radii
+                    sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
+                    sample["normals"] = np.zeros_like(sample["rays_o"])
+            return sample
