@@ -286,7 +286,7 @@ class LitNeRF(LitModel):
                 batch[k] = batch[k].unsqueeze(-1)
 
         W,H = self.hparams.img_wh
-        ret = self.render_rays(batch, , batch_idx)
+        ret = self.render_rays(batch, batch_idx)
         rank = dist.get_rank()
         # rank =0
         if rank==0:
