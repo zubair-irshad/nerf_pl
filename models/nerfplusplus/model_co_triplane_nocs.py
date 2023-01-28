@@ -542,12 +542,12 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
             mask = sem_map.view(-1, 1).repeat(1, 3)
             mask = mask>0
             
-            obj_rgb = np.zeros(obj_comp_rgb.shape)
+            obj_rgb = torch.zeros(obj_comp_rgb.shape).to(obj_comp_rgb.device)
             obj_rgb[mask] = obj_comp_rgb[mask]
             comp_rgb = obj_rgb + fg_comp_rgb + bg_lambda * bg_comp_rgb
             nocs = rendered_results_chunk[1][7]
             
-            obj_nocs = np.zeros(nocs.shape)
+            obj_nocs = torch.zeros(nocs.shape).to(obj_comp_rgb.device)
             obj_nocs[mask] = nocs[mask]
 
 
