@@ -236,7 +236,7 @@ class PDMultiObject(Dataset):
                                         self.near*torch.ones_like(rays_o[:, :1]),
                                         self.far*torch.ones_like(rays_o[:, :1])],
                                         1) # (h*w, 8)  
-            if self.model_type == "vanilla":
+        if self.model_type == "vanilla":
                 sample = {
                     "rays": rays,
                     "rgbs": img,

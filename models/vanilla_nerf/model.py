@@ -264,15 +264,39 @@ class LitNeRF(LitModel):
 
         return loss
 
+    # def render_rays(self, batch, batch_idx):
+    #     ret = {}
+    #     rendered_results = self.model(
+    #         batch, False, self.white_bkgd, self.near, self.far
+    #     )
+    #     rgb_fine = rendered_results[1][0]
+    #     target = batch["target"]
+    #     ret["target"] = target
+    #     ret["rgb"] = rgb_fine
+    #     return ret
+
     def render_rays(self, batch, batch_idx):
-        ret = {}
-        rendered_results = self.model(
-            batch, False, self.white_bkgd, self.near, self.far
-        )
-        rgb_fine = rendered_results[1][0]
+        B = batch["rays_o"].shape[0]
+        ret = defaultdict(list)
+        for i in range(0, B, self.hparams.chunk):
+            batch_chunk = dict()
+            for k, v in batch.items():
+                if k =='radii':
+                    batch_chunk[k] = v[:, i : i + self.hparams.chunk]
+                else:
+                    batch_chunk[k] = v[i : i + self.hparams.chunk]                       
+            rendered_results_chunk = self.model(
+                batch_chunk, False, self.white_bkgd, self.near, self.far
+            )
+            #here 1 denotes fine
+            ret["comp_rgb"]+=[rendered_results_chunk[1][0]]
+            # for k, v in rendered_results_chunk[1].items():
+            #     ret[k] += [v]
         target = batch["target"]
-        ret["target"] = target
-        ret["rgb"] = rgb_fine
+        for k, v in ret.items():
+            ret[k] = torch.cat(v, 0)
+        psnr_ = self.psnr_legacy(ret["rgb"], batch["target"]).mean()
+        self.log("val/psnr", psnr_.item(), on_step=True, prog_bar=True, logger=True)
         return ret
 
     def on_validation_start(self):
@@ -343,7 +367,7 @@ class LitNeRF(LitModel):
         return DataLoader(self.train_dataset,
                           shuffle=True,
                           num_workers=32,
-                          batch_size=self.hparams.batch_size,
+                          batch_size=4096,
                           pin_memory=True)
 
     def val_dataloader(self):
