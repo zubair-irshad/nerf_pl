@@ -113,11 +113,6 @@ class PDMultiObject(Dataset):
         self.white_back = False
 
     def read_meta(self):
-        # self.base_dir = os.path.join(self.root_dir, self.split)
-        # self.img_files = os.listdir(os.path.join(self.base_dir, 'rgb'))
-        # self.img_files.sort()
-        #for bottle
-
         base_dir_train = os.path.join(self.root_dir, 'train')
         img_files_train = os.listdir(os.path.join(base_dir_train, 'rgb'))
         img_files_train.sort()
@@ -135,12 +130,12 @@ class PDMultiObject(Dataset):
         pose_dir_val = os.path.join(self.root_dir, 'val', 'pose')
 
         if self.split == 'train':
-            all_c2w, _, _, self.focal, self.img_size, _ = read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_test, output_boxes=True)
+            all_c2w, all_c2w_val, _, self.focal, self.img_size, _ = read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_test, output_boxes=True)
         elif self.split == 'val':
-            all_c2w, _, _, self.focal, self.img_size, _ = read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_test, output_boxes=True)
+            all_c2w, all_c2w_val, _, self.focal, self.img_size, _ = read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_test, output_boxes=True)
 
         self.img_files_val = img_files_train[100:]        
-        self.all_c2w_val = all_c2w[100:]
+        self.all_c2w_val = all_c2w_val
         print("all c2w", all_c2w.shape)
         w, h = self.img_wh
         print("self.focal", self.focal)
