@@ -102,7 +102,7 @@ def read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_val, out
 
 class PDMultiObject(Dataset):
     def __init__(self, root_dir, split='train', img_wh=(1600, 1600), 
-                white_back = False, model_type= 'vanilla'):
+                white_back = False, model_type= 'vanilla',  eval_inference=None):
         self.root_dir = root_dir
         self.split = split
         print("img_wh", img_wh)
@@ -111,6 +111,7 @@ class PDMultiObject(Dataset):
         self.define_transforms()
         self.read_meta()
         self.white_back = False
+        self.eval_inference = eval_inference
 
     def read_meta(self):
         base_dir_train = os.path.join(self.root_dir, 'train')
@@ -194,7 +195,11 @@ class PDMultiObject(Dataset):
         if self.split == 'train':
             return len(self.all_rays)
         if self.split == 'val':
-            return 1 # only validate 8 images (to support <=8 gpus)
+            if self.eval_inference is not None:
+                num = int(self.eval_inference[0])
+                return (100-num)
+            else:
+                return 1
         return len(self.meta)
 
     def __getitem__(self, idx):
@@ -216,7 +221,10 @@ class PDMultiObject(Dataset):
                 sample["normals"] = np.zeros_like(sample["rays_o"])
 
         elif self.split == 'val': # create data for each image separately
-            val_idx = 15
+            if self.eval_inference:
+                val_idx = idx
+            else:
+                val_idx = 15
             img_name = self.img_files_val[val_idx]
             w, h = self.img_wh
             c2w = self.all_c2w_val[val_idx]
