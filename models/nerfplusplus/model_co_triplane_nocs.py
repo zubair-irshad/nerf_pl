@@ -569,6 +569,9 @@ class LitNeRFPP_CO_TP_NOCS(LitModel):
             #     ret[k] += [v]
         for k, v in ret.items():
             ret[k] = torch.cat(v, 0)
+
+        for k,v in ret.items():
+            print(k,v.shape)
         psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
         ssim_ = self.ssim_legacy(ret["comp_rgb"], batch["target"]).mean()
         lpips_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
