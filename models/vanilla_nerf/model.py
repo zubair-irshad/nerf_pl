@@ -190,6 +190,7 @@ class NeRF(nn.Module):
 class LitNeRF(LitModel):
     def __init__(
         self,
+        hparams,
         lr_init: float = 5.0e-4,
         lr_final: float = 5.0e-6,
         lr_delay_steps: int = 2500,
@@ -197,9 +198,10 @@ class LitNeRF(LitModel):
         randomized: bool = True,
     ):
         for name, value in vars().items():
-            if name not in ["self", "__class__"]:
+            if name not in ["self", "__class__", "hparams"]:
+                print(name, value)
                 setattr(self, name, value)
-
+        self.hparams.update(vars(hparams))
         super(LitNeRF, self).__init__()
         self.model = NeRF()
 
@@ -288,7 +290,7 @@ class LitNeRF(LitModel):
         using_lbfgs,
     ):
         step = self.trainer.global_step
-        max_steps = gin.query_parameter("run.max_steps")
+        max_steps = self.hparams.run_max_steps
 
         if self.lr_delay_steps > 0:
             delay_rate = self.lr_delay_mult + (1 - self.lr_delay_mult) * np.sin(
