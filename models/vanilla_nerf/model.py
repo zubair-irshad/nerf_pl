@@ -304,7 +304,7 @@ class LitNeRF(LitModel):
         target = batch["target"]
         for k, v in ret.items():
             ret[k] = torch.cat(v, 0)
-        psnr_ = self.psnr_legacy(ret["rgb"], batch["target"]).mean()
+        psnr_ = self.psnr_legacy(ret["comp_rgb"], batch["target"]).mean()
         self.log("val/psnr", psnr_.item(), on_step=True, prog_bar=True, logger=True)
         return ret
 
