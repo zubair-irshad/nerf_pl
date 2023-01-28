@@ -12,6 +12,7 @@ import os
 from random import random
 from typing import *
 from datasets import dataset_dict
+from torch.utils.data import DataLoader
 import numpy as np
 import torch
 import torch.nn as nn
