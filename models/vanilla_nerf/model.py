@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
+import torch.distributed as dist
 
 import models.vanilla_nerf.helper as helper
 from utils.train_helper import *
