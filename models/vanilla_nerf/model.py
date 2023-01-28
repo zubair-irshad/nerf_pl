@@ -376,7 +376,7 @@ class LitNeRF(LitModel):
         return DataLoader(self.train_dataset,
                           shuffle=True,
                           num_workers=8,
-                          batch_size='1024',
+                          batch_size=1024,
                           pin_memory=True)
 
     def val_dataloader(self):
