@@ -244,6 +244,7 @@ class LitNeRF(LitModel):
 
         for k,v in batch.items():
             batch[k] = v.squeeze(0)
+            
         rendered_results = self.model(
             batch, self.randomized, self.white_bkgd, self.near, self.far
         )

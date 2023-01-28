@@ -242,7 +242,7 @@ class PDMultiObject(Dataset):
                     "rgbs": img,
                     "img_wh": self.img_wh,
                 }
-            else:
+        else:
                 sample = {}
                 sample["rays_o"] = rays[:,:3]
                 sample["rays_d"] = view_dirs
