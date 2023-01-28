@@ -109,7 +109,6 @@ class PDMultiObject(Dataset):
         self.model_type = model_type
         self.img_wh = img_wh
         self.define_transforms()
-        self.all_c2w = []
         self.read_meta()
         self.white_back = False
 
@@ -131,7 +130,6 @@ class PDMultiObject(Dataset):
 
         # self.all_unique_ids = [1167, 1168, 1169, 1170]
         self.near = 0.2
-
         self.far = 3.0
         pose_dir_train = os.path.join(self.root_dir, 'train', 'pose')
         pose_dir_val = os.path.join(self.root_dir, 'val', 'pose')
@@ -143,6 +141,7 @@ class PDMultiObject(Dataset):
 
         self.img_files_val = img_files_train[100:]        
         self.all_c2w_val = all_c2w[100:]
+        print("all c2w", all_c2w.shape)
         w, h = self.img_wh
         print("self.focal", self.focal)
         self.focal *=(self.img_wh[0]/self.img_size[0])  # modify focal length to match size self.img_wh

@@ -213,11 +213,11 @@ class LitNeRF(LitModel):
             kwargs_train = {'root_dir': self.hparams.root_dir,
                              'img_wh': tuple(self.hparams.img_wh),
                                 'white_back': self.hparams.white_back,
-                                'model_type': 'nerfpp'}
+                                'model_type': 'Vanilla'}
             kwargs_val = {'root_dir': self.hparams.root_dir,
                             'img_wh': tuple(self.hparams.img_wh),
                                 'white_back': self.hparams.white_back,
-                                'model_type': 'nerfpp'}
+                                'model_type': 'Vanilla'}
 
         if self.hparams.run_eval:        
             kwargs_test = {'root_dir': self.hparams.root_dir,
