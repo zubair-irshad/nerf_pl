@@ -19,11 +19,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 import torch.distributed as dist
+from collections import defaultdict
 
 import models.vanilla_nerf.helper as helper
 from utils.train_helper import *
 from models.vanilla_nerf.util import *
 from models.interface import LitModel
+import wandb
+import random
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+np.random.seed(0)   
+random.seed(0)
 
 class NeRFMLP(nn.Module):
     def __init__(
@@ -244,7 +252,7 @@ class LitNeRF(LitModel):
 
         for k,v in batch.items():
             batch[k] = v.squeeze(0)
-            
+
         rendered_results = self.model(
             batch, self.randomized, self.white_bkgd, self.near, self.far
         )
