@@ -204,7 +204,7 @@ class PDMultiObject(Dataset):
     def __getitem__(self, idx):
         if self.split == 'train': # use data in the buffers
             # rand_instance_id = torch.randint(0, len(self.all_unique_ids), (1,))
-            if self.model_type == "Vanilla":
+            if self.model_type == "vanilla":
                 sample = {
                     "rays": self.all_rays[idx],
                     "rgbs": self.all_rgbs[idx],
@@ -236,7 +236,7 @@ class PDMultiObject(Dataset):
                                         self.near*torch.ones_like(rays_o[:, :1]),
                                         self.far*torch.ones_like(rays_o[:, :1])],
                                         1) # (h*w, 8)  
-            if self.model_type == "Vanilla":
+            if self.model_type == "vanilla":
                 sample = {
                     "rays": rays,
                     "rgbs": img,
