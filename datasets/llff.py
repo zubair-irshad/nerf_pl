@@ -12,13 +12,43 @@ from .ray_utils import *
 from .colmap_utils import \
     read_cameras_binary, read_images_binary, read_points3d_binary
 import cv2
+import copy
+import imageio
+import trimesh
 
 from .nocs_utils import load_depth, process_data, get_GT_poses, rebalance_mask
-from .viz_utils import vis_ray_segmented, viz_pcd_out, plot_camera_trajectory, draw_saved_mesh_and_pose, plot_NDC_trajectory
+from .viz_utils import get_object_rays_in_bbox, vis_ray_segmented, viz_pcd_out, plot_camera_trajectory, draw_saved_mesh_and_pose, plot_NDC_trajectory, plot_world_trajectory, plot_canonical_pcds, convert_points_to_homopoints, convert_homopoints_to_points
 
 def normalize(v):
     """Normalize a vector."""
     return v/np.linalg.norm(v)
+
+
+def visualize_poses(poses, size=0.1):
+    # poses: [B, 4, 4]
+
+    axes = trimesh.creation.axis(axis_length=4)
+    box = trimesh.primitives.Box(extents=(1, 1, 1)).as_outline()
+    box.colors = np.array([[128, 128, 128]] * len(box.entities))
+    objects = [axes, box]
+
+    for pose in poses:
+        # a camera is visualized with 8 line segments.
+        pos = pose[:3, 3]
+        a = pos + size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        b = pos - size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        c = pos - size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+        d = pos + size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+
+        dir = (a + b + c + d) / 4 - pos
+        dir = dir / (np.linalg.norm(dir) + 1e-8)
+        o = pos + dir * 3
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a], [pos, o]])
+        segs = trimesh.load_path(segs)
+        objects.append(segs)
+
+    trimesh.Scene(objects).show()
 
 
 def average_poses(poses):
@@ -81,10 +111,39 @@ def center_poses(poses):
     poses_homo = \
         np.concatenate([poses, last_row], 1) # (N_images, 4, 4) homogeneous coordinate
 
+    print("pose_avg_homo", pose_avg_homo)
     poses_centered = np.linalg.inv(pose_avg_homo) @ poses_homo # (N_images, 4, 4)
     poses_centered = poses_centered[:, :3] # (N_images, 3, 4)
 
     return poses_centered, pose_avg
+
+
+def center_points(pts, poses):
+    """
+    Center the poses so that we can use NDC.
+    See https://github.com/bmild/nerf/issues/34
+
+    Inputs:
+        poses: (N_images, 3, 4)
+
+    Outputs:
+        poses_centered: (N_images, 3, 4) the centered poses
+        pose_avg: (3, 4) the average pose
+    """
+
+    pose_avg = average_poses(poses) # (3, 4)
+    pose_avg_homo = np.eye(4)
+    pose_avg_homo[:3] = pose_avg # convert to homogeneous coordinate for faster computation
+                                 # by simply adding 0, 0, 0, 1 as the last row
+    last_row = np.tile(np.array([0, 0, 0, 1]), (len(poses), 1, 1)) # (N_images, 1, 4)
+    # poses_homo = \
+    #     np.concatenate([poses, last_row], 1) # (N_images, 4, 4) homogeneous coordinate
+
+    print("pose_avg_homo", pose_avg_homo.shape, pose_avg_homo)
+    pts_centered = np.linalg.inv(pose_avg_homo) @ pts # (N_images, 4, 4)
+    # poses_centered = poses_centered[:, :3] # (N_images, 3, 4)
+
+    return pts_centered
 
 
 def create_spiral_poses(radii, focus_depth, n_poses=120):
@@ -248,6 +307,8 @@ class LLFFDatasetNOCS(Dataset):
                                           # the nearest depth is at 1/0.75=1.33
         self.bounds /= scale_factor
         self.poses[..., 3] /= scale_factor
+
+        visualize_poses(self.poses)
 
         # ray directions for all pixels, same for all images (same H, W, focal)
         self.directions = \
@@ -419,8 +480,9 @@ class LLFFDatasetNOCS(Dataset):
                 depth_full_path = img_path + '_depth.png'
                 depth = load_depth(depth_full_path)
                 masks, coords, class_ids, instance_ids, model_list, bboxes = process_data(img_path, depth)
-                
+                print("masks", masks.shape)
                 val_inst_id = 5
+                print("instance_ids", instance_ids)
                 for i_inst, instance_id in enumerate(instance_ids):
                     if instance_id != val_inst_id:
                         continue
@@ -430,16 +492,20 @@ class LLFFDatasetNOCS(Dataset):
                         fg_weight=1.0,
                         bg_weight=0.05,
                     )
+                    print("instance_mask", instance_mask.shape)
                     instance_mask, instance_mask_weight = self.transform(instance_mask).view(
                         -1), self.transform(instance_mask_weight).view(-1)
-                    instance_id = torch.ones_like(instance_mask).long() * instance_id
-                    
+                    print("instance_mask", instance_mask.shape)
+                    instance_id_out = torch.ones_like(instance_mask).long() * instance_id
+                    # print("instance_id", instance_id.shape)
+                    # print("rays", rays.shape)
+                    # print("img", img.shape, instance_mask.shape, instance_id.shape)
                 sample = {
                     "rays": rays,
                     "rgbs": img,
                     "instance_mask": instance_mask,
                     "instance_mask_weight": instance_mask_weight,
-                    "instance_ids": instance_id
+                    "instance_ids": instance_id_out
                 }
         return sample
 
@@ -466,7 +532,24 @@ class LLFFDatasetNOCSOrig(Dataset):
         H = camdata[1].height
         W = camdata[1].width
         self.focal = camdata[1].params[0] * self.img_wh[0]/W
+
+        f_x = camdata[1].params[0] 
+        f_y = camdata[1].params[0] 
+        p_x = camdata[1].params[1] 
+        p_y = camdata[1].params[2] 
+        intrinsics = np.array([
+            [f_x, 0, p_x],
+            [0, f_y, p_y],
+            [0, 0, 1]
+        ], dtype=np.float32)
+
         print("self.focal", self.focal)
+
+        fx = np.float32(camdata[1].params[0])
+        fy = np.float32(camdata[1].params[1])
+        cx = np.float32(camdata[1].params[2])
+        cy = np.float32(camdata[1].params[3])
+        print("fx, fy, cx, cy", fx, fy, cx, cy)
 
         # Step 2: correct poses
         # read extrinsics (of successfully reconstructed images)
@@ -496,11 +579,27 @@ class LLFFDatasetNOCSOrig(Dataset):
                 visibilities[j-1, i] = 1
         # calculate each point's depth w.r.t. each camera
         # it's the dot product of "points - camera center" and "camera frontal axis"
-        # pcd = o3d.geometry.PointCloud()
-        # pcd.points = o3d.utility.Vector3dVector(np.transpose(pts_world, (2,1,0)).squeeze(axis=-1))
         # o3d.visualization.draw_geometries([pcd])
 
         depths = ((pts_world-poses[..., 3:4])*poses[..., 2:3]).sum(1) # (N_images, N_points)
+
+
+        # print("pts_world", pts_world.shape, self.poses.shape)
+        # all_camera_points = []
+        # pose_transform = copy.deepcopy(poses)
+        # for m in range(pose_transform.shape[0]):
+        #     pose_transform_i = pose_transform[m]
+        #     pose_transform_i = np.concatenate((pose_transform_i, np.array([[0,0,0,1]])), axis=0)
+        #     pts_camera_i = pose_transform_i @ convert_points_to_homopoints(np.squeeze(pts_world, axis=0))
+        #     pts_camera_i = convert_homopoints_to_points(pts_camera_i)
+        #     # pts_camera_i = pts_camera_i/scale_factor
+        #     # pcd = o3d.geometry.PointCloud()
+        #     # pcd.points = o3d.utility.Vector3dVector(np.transpose(pts_camera_i, (1,0)))
+        #     all_camera_points.append(pts_camera_i)
+
+
+
+        print("depths", depths.shape)
         for i in range(len(poses)):
             visibility_i = visibilities[i]
             zs = depths[i][visibility_i==1]
@@ -515,10 +614,12 @@ class LLFFDatasetNOCSOrig(Dataset):
         # print("poses", poses.shape)
         # print("poses[..., 0:1]", poses[..., 0:1].shape)
         # print("-poses[..., 1:3]", -poses[..., 1:3].shape)
-        poses = np.concatenate([poses[..., 0:1], -poses[..., 1:3], poses[..., 3:4]], -1)
-        self.poses, _ = center_poses(poses)
 
-        # self.poses = poses
+        poses_pts = poses
+        poses = np.concatenate([poses[..., 0:1], -poses[..., 1:3], poses[..., 3:4]], -1)
+        self.poses, poses_avg = center_poses(poses)
+        
+        #self.poses = poses
         distances_from_center = np.linalg.norm(self.poses[..., 3], axis=1)
         val_idx = np.argmin(distances_from_center) # choose val image as the closest to
                                                    # center image
@@ -529,7 +630,36 @@ class LLFFDatasetNOCSOrig(Dataset):
         scale_factor = near_original*0.75 # 0.75 is the default parameter
                                           # the nearest depth is at 1/0.75=1.33
         self.bounds /= scale_factor
+
+        # # pts_camera = self.poses @pts_world
+        # # pts_world /=scale_factor
+        # pcd = o3d.geometry.PointCloud()
+        
+
+        print("scale factor", scale_factor)
+
+        print("self.bounds.min", self.bounds.min())
+        print("self.bounds.max", self.bounds.max())
         self.poses[..., 3] /= scale_factor
+
+        # print("pts_world", pts_world)
+        # # center pts_world 
+        # pts_world = pts_world/scale_factor
+        # print("pts_world", pts_world)
+        # flip_yz = np.eye(4)
+        # flip_yz[1, 1] = -1
+        # flip_yz[2, 2] = -1
+
+        # pts_opengl = np.linalg.inv(flip_yz) @ convert_points_to_homopoints(np.squeeze(pts_world, axis=0))
+        # pts_opengl = center_points(pts_opengl, poses_pts)
+        # pts_opengl = convert_homopoints_to_points(pts_opengl)
+
+        pts_opengl = np.squeeze(pts_world, axis=0)
+
+        # ralign()
+        # pcd = o3d.geometry.PointCloud()
+        # print("pts_opengl", pts_opengl.shape)
+        # pcd.points = o3d.utility.Vector3dVector(np.transpose(pts_opengl, (1,0)))
 
         # ray directions for all pixels, same for all images (same H, W, focal)
         self.directions = \
@@ -554,6 +684,9 @@ class LLFFDatasetNOCSOrig(Dataset):
             # if self.use_inst_seg:
                 # self.all_rays_dict = {}
                 # self.all_rgbs_dict = {}
+            all_model_points = []
+            all_abs_poses = []
+            all_class_ids = []
             for i, image_path in enumerate(self.image_paths): 
                 if i == val_idx: # exclude the val image
                     continue
@@ -567,8 +700,8 @@ class LLFFDatasetNOCSOrig(Dataset):
                 img = self.transform(img) # (3, h, w)
                 img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGB
                 self.all_rgbs += [img]
-                r_test = np.eye(3)
-                t_test = np.zeros((3,1))
+                # r_test = np.eye(3)
+                # t_test = np.zeros((3,1))
                 # c2w_test = np.concatenate((r_test,t_test), axis=1)
 
                 # c2w_test = torch.from_numpy(c2w_test).float()
@@ -580,26 +713,53 @@ class LLFFDatasetNOCSOrig(Dataset):
                 img_path = os.path.join(os.path.dirname(image_path), os.path.basename(image_path).split('.')[0].split('_')[0])
                 depth_full_path = img_path + '_depth.png'
                 depth = load_depth(depth_full_path)
+
+                depth_fused_path = img_path + 'fused_depth.png'
+                #fused_depth = imageio.imread('/home/zubair/DPT/output_monodepth/00000_fused.png') / 100
+
                 data_dir = '/home/zubair/Downloads/nocs_data'
                 masks, coords, class_ids, instance_ids, model_list, bboxes = process_data(img_path, depth)                
                 
                 # for i_inst, instance_id in enumerate(instance_ids):
-
-                self.all_masks += [masks]
+                # self.all_masks += [masks]
                 #visualize camera trajectory and test for bounding box intersection
+                abs_poses, model_points, all_gt_class_ids = get_GT_poses(data_dir, img_path, class_ids, instance_ids, model_list, bboxes, is_pcd_out=False)
+                rays_o_obj, rays_dir_obj, batch_near_obj, batch_far_obj = get_object_rays_in_bbox(rays_o, rays_d, model_points, abs_poses, scale_factor, c2w=c2w)
 
-                # abs_poses, model_points = get_GT_poses(data_dir, img_path, class_ids, instance_ids, model_list, bboxes, is_pcd_out=False)
-                # color_path = img_path +'_color.png'
-                # color_img = Image.open(color_path)
-                # color_img = color_img.convert('RGB')
+                if i == 0:
+                    rts_1 = abs_poses.copy()
+                    all_gt_class_ids_1 = all_gt_class_ids.copy()
+
+                if i ==1:
+                    print("np.linalg(rts_1.camera_T_object) @ abs_poses.camera_T_object", np.linalg.inv(rts_1[0].camera_T_object) @ abs_poses[1].camera_T_object)
+                    print("np.linalg(rts_1.camera_T_object) @ abs_poses.camera_T_object", np.linalg.inv(rts_1[1].camera_T_object) @ abs_poses[0].camera_T_object)
+                    print("np.linalg(rts_1.camera_T_object) @ abs_poses.camera_T_object", np.linalg.inv(rts_1[2].camera_T_object) @ abs_poses[3].camera_T_object)
+                    print("all_gt_class_ids_1", all_gt_class_ids_1, all_gt_class_ids)
+                    pose_0 = np.concatenate((self.poses[0].copy(), np.array([[0,0,0,1]])), axis=0)
+                    pose_1 = np.concatenate((self.poses[1].copy(), np.array([[0,0,0,1]])), axis=0)
+                    print("np.linalg(rts_1.camera_T_object) @ abs_poses.camera_T_object", np.linalg.inv(pose_1) @ pose_0)
+
+                color_path = img_path +'_color.png'
+                color_img = Image.open(color_path)
+                color_img = color_img.convert('RGB')
                 # # Viz segmented rays for each object
                 # print("total rays", rays_o.shape)
-                # rays_o_obj, rays_dir_obj = get_rays_segmented(masks, class_ids, rays_o, rays_d, self.img_wh[0], self.img_wh[1])
-                # for rays in rays_o_obj:
-                #     print("rays obj", rays.shape)
-                # plot_camera_trajectory(model_points, abs_poses, self.poses, rays_o_obj,rays_dir_obj, i)
+                # print("class_ids", class_ids)
+                # print("all_gt_class_ids", all_gt_class_ids)
+                #rays_o_obj, rays_dir_obj = get_rays_segmented(masks, all_gt_class_ids, rays_o, rays_d, self.img_wh[0], self.img_wh[1])
+                for rays in rays_o_obj:
+                    print("rays obj", rays.shape)
                 
-            
+                plot_camera_trajectory(model_points, abs_poses, self.poses, rays_o_obj,rays_dir_obj, i, poses, batch_near_obj, batch_far_obj, depth, pts_opengl, scale_factor, self.focal, intrinsics)
+                #plot_canonical_pcds(model_points, abs_poses, self.poses, rays_o_obj, rays_dir_obj, i, scale_factor)
+
+                plot_NDC_trajectory(model_points, abs_poses, self.poses, rays_o_obj,rays_dir_obj, i, self.img_wh[0], self.img_wh[1], self.focal)
+                
+                # model_points = [x for _, x in sorted(zip(class_ids, model_points))]
+                # abs_poses = [x for _, x in sorted(zip(class_ids, abs_poses))]
+                all_model_points.append(model_points)
+                all_abs_poses.append(abs_poses)
+                all_class_ids.append(class_ids)
                 if not self.spheric_poses:
                     near, far = 0, 1
                     rays_o, rays_d = get_ndc_rays(self.img_wh[1], self.img_wh[0],
@@ -608,11 +768,11 @@ class LLFFDatasetNOCSOrig(Dataset):
                                      # near and far in NDC are always 0 and 1
                                      # See https://github.com/bmild/nerf/issues/34
                     # if self.use_inst_seg:
-                    N_rays = 2048
-                    _, _ =  vis_ray_segmented(masks, class_ids, rays_o, rays_d, img, self.img_wh[0], self.img_wh[1])
+                    #N_rays = 2048
+                    #_, _ =  vis_ray_segmented(masks, class_ids, rays_o, rays_d, img, self.img_wh[0], self.img_wh[1])
 
-                    rays_o_objs, rays_dir_objs, class_ids, seg_mask = get_rays_segmented(masks, class_ids, rays_o, rays_d, self.img_wh[0], self.img_wh[1], N_rays)
-                    self.all_masks += [seg_mask]
+                    #rays_o_objs, rays_dir_objs, class_ids, seg_mask = get_rays_segmented(masks, class_ids, rays_o, rays_d, self.img_wh[0], self.img_wh[1], N_rays)
+                    #self.all_masks += [seg_mask]
                         
                     #rays_o_obj, rays_dir_obj =  vis_ray_segmented(masks, class_ids, rays_o, rays_d, img, self.img_wh[0], self.img_wh[1])
                     #for rays in rays_o_obj:
@@ -648,7 +808,8 @@ class LLFFDatasetNOCSOrig(Dataset):
             #         print("id, self.all_rays_dict[id] = torch.cat(all_rays, 0)",id,  self.all_rays_dict[id].shape)
             #         print("len self mask", len(self.all_masks), self.all_masks[0].shape)
             #         print("len self rgb", len(self.all_rgbs), self.all_rgbs[0].shape)
-            # else:               
+            # else:  
+            #plot_world_trajectory(all_model_points, all_abs_poses, all_class_ids, self.poses, poses_avg)             
             self.all_rays = torch.cat(self.all_rays, 0) # ((N_images-1)*h*w, 8)
             self.all_rgbs = torch.cat(self.all_rgbs, 0) # ((N_images-1)*h*w, 3)
 
@@ -696,8 +857,7 @@ class LLFFDatasetNOCSOrig(Dataset):
             #     # sample = {'rays': self.all_rays[idx],
             #     #         'rgbs': self.all_rgbs[idx]}
             sample = {'rays': self.all_rays[idx],
-                    'rgbs': self.all_rgbs[idx],
-                    'masks': self.all_masks[idx]}
+                    'rgbs': self.all_rgbs[idx]}
         else:
             if self.split == 'val':
                 c2w = torch.FloatTensor(self.poses[self.val_idx])
@@ -731,7 +891,7 @@ class LLFFDatasetNOCSOrig(Dataset):
                 img = self.transform(img) # (3, h, w)
                 img = img.view(3, -1).permute(1, 0) # (h*w, 3)
                 sample['rgbs'] = img
-                sample['masks'] = self.all_masks[idx]
+                # sample['masks'] = self.all_masks[idx]
 
         return sample
 
@@ -761,6 +921,12 @@ class LLFFDataset(Dataset):
         W = camdata[1].width
         self.focal = camdata[1].params[0] * self.img_wh[0]/W
         print("self.focal", self.focal)
+
+        fx = np.float32(camdata[1].params[0])
+        fy = np.float32(camdata[1].params[1])
+        cx = np.float32(camdata[1].params[2])
+        cy = np.float32(camdata[1].params[3])
+        print("fx, fy, cx, cy", fx, fy, cx, cy)
 
         # Step 2: correct poses
         # read extrinsics (of successfully reconstructed images)

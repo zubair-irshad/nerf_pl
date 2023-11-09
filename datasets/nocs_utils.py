@@ -159,11 +159,14 @@ def get_GT_poses(data_dir, img_path, class_ids, instance_ids, model_list, bboxes
     sizes = np.zeros((num_insts, 3))
     # poses = np.zeros((num_insts, 4, 4))
     poses = []
+    all_gt_class_ids = []
     scales = np.zeros(num_insts)
     rotations = np.zeros((num_insts, 3, 3))
     translations = np.zeros((num_insts, 3))
     for i in range(num_insts):
         gt_idx = map_to_nocs[i]
+        gt_class_id = gt_class_ids[gt_idx]
+        all_gt_class_ids.append(gt_class_id)
         sizes[i] = model_sizes[model_list[i]]
         sRT = gt_sRT[gt_idx]
         s = np.cbrt(np.linalg.det(sRT[:3, :3]))
@@ -198,7 +201,7 @@ def get_GT_poses(data_dir, img_path, class_ids, instance_ids, model_list, bboxes
     #     model_points = [models[model_list[i]].astype(np.float32) for i in range(len(class_ids))]
     #     latent_embeddings = get_latent_embeddings(data_dir, model_points)
     #     return poses, latent_embeddings
-    return poses, model_points
+    return poses, model_points, all_gt_class_ids
 
 def get_latent_embeddings(data_dir, point_clouds):
     emb_dim = 128
@@ -309,3 +312,77 @@ def rebalance_mask(mask, fg_weight=None, bg_weight=None):
     # cv2.imshow('img_balanced_weight', balanced_weight)
     # cv2.waitKey(5)
     return balanced_weight
+
+
+import numpy as np
+import numpy.linalg
+
+# Relevant links:
+#   - http://stackoverflow.com/a/32244818/263061 (solution with scale)
+#   - "Least-Squares Rigid Motion Using SVD" (no scale but easy proofs and explains how weights could be added)
+
+
+# Rigidly (+scale) aligns two point clouds with know point-to-point correspondences
+# with least-squares error.
+# Returns (scale factor c, rotation matrix R, translation vector t) such that
+#   Q = P*cR + t
+# if they align perfectly, or such that
+#   SUM over point i ( | P_i*cR + t - Q_i |^2 )
+# is minimised if they don't align perfectly.
+def umeyama(P, Q):
+    assert P.shape == Q.shape
+    n, dim = P.shape
+
+    centeredP = P - P.mean(axis=0)
+    centeredQ = Q - Q.mean(axis=0)
+
+    C = np.dot(np.transpose(centeredP), centeredQ) / n
+
+    V, S, W = np.linalg.svd(C)
+    d = (np.linalg.det(V) * np.linalg.det(W)) < 0.0
+
+    if d:
+        S[-1] = -S[-1]
+        V[:, -1] = -V[:, -1]
+
+    R = np.dot(V, W)
+
+    varP = np.var(P, axis=0).sum()
+    c = 1/varP * np.sum(S) # scale factor
+
+    t = Q.mean(axis=0) - P.mean(axis=0).dot(c*R)
+
+    return c, R, t
+
+
+# # Testing
+
+# np.set_printoptions(precision=3)
+
+# a1 = np.array([
+#   [0, 0, -1],
+#   [0, 0, 0],
+#   [0, 0, 1],
+#   [0, 1, 0],
+#   [1, 0, 0],
+# ])
+
+# a2 = np.array([
+#   [0, 0, 1],
+#   [0, 0, 0],
+#   [0, 0, -1],
+#   [0, 1, 0],
+#   [-1, 0, 0],
+# ])
+# a2 *= 2 # for testing the scale calculation
+# a2 += 3 # for testing the translation calculation
+
+
+# c, R, t = umeyama(a1, a2)
+# print "R =\n", R
+# print "c =", c
+# print "t =\n", t
+# print
+# print "Check:  a1*cR + t = a2  is", np.allclose(a1.dot(c*R) + t, a2)
+# err = ((a1.dot(c * R) + t - a2) ** 2).sum()
+# print "Residual error", err

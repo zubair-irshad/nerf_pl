@@ -7,7 +7,7 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff', 'llff_nocs'],
+                        choices=['blender', 'llff', 'llff_nocs', 'llff_nocs_test'],
                         help='which dataset to train/val')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[640, 480],
                         help='resolution (img_w, img_h) of the image')
@@ -20,6 +20,8 @@ def get_opts():
                         help='number of frequencies in dir positional encoding')
     parser.add_argument('--N_samples', type=int, default=64,
                         help='number of coarse samples')
+    # parser.add_argument('--N_samples', type=int, default=96,
+    #                     help='number of coarse samples')
     parser.add_argument('--N_importance', type=int, default=64,
                         help='number of additional fine samples')
     parser.add_argument('--use_disp', default=False, action="store_true",

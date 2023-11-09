@@ -146,17 +146,16 @@ class NeRFSystem(LightningModule):
             img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
             depth = visualize_depth(results[f'depth_{typ}'].view(H, W)) # (3, H, W)
             # stack = torch.stack([img_gt, img, depth]) # (3, 3, H, W)
-
             images = {"gt":img_gt, "predicted": img, "depth": depth}
+
+
             self.logger.experiment.log({
                 "Val images": [wandb.Image(img, caption=caption)
                 for caption, img in images.items()]
             })
 
-
             # self.logger.experiment.add_images('val/GT_pred_depth',
             #                                    stack, self.global_step)
-
         psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
         log['val_psnr'] = psnr_
 
