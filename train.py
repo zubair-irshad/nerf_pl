@@ -10,11 +10,12 @@ from datasets import dataset_dict
 # models
 from models.nerf import *
 from models.rendering import *
-
+import torch.distributed as dist
 # optimizer, scheduler, visualization
 from utils import *
 
 # losses
+# from losses import loss_dict, get_background_loss
 from losses import loss_dict
 
 # metrics
@@ -27,6 +28,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.plugins import DDPPlugin
 import wandb
 from pytorch_lightning.loggers import WandbLogger
+wandb.login(key = '996ee27de02ee214ded37d491317d5a0567f6dc8')
 
 # wandb_logger = WandbLogger()
 
@@ -36,30 +38,48 @@ class NeRFSystem(LightningModule):
         self.save_hyperparameters(hparams)
 
         self.loss = loss_dict['color'](coef=1)
+        # self.loss = get_background_loss(hparams)
 
         self.embedding_xyz = Embedding(hparams.N_emb_xyz)
         self.embedding_dir = Embedding(hparams.N_emb_dir)
         self.embeddings = {'xyz': self.embedding_xyz,
                            'dir': self.embedding_dir}
 
-        self.nerf_coarse = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
-                                in_channels_dir=6*hparams.N_emb_dir+3)
+        # self.embeddings = None
+
+        if self.hparams.use_tcnn:
+            self.nerf_coarse = NeRF_TCNN(
+                                    encoding="hashgrid",
+                                )
+        else:
+            self.nerf_coarse = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
+                                    in_channels_dir=6*hparams.N_emb_dir+3)
+
         self.models = {'coarse': self.nerf_coarse}
         load_ckpt(self.nerf_coarse, hparams.weight_path, 'nerf_coarse')
 
         if hparams.N_importance > 0:
             self.nerf_fine = NeRF(in_channels_xyz=6*hparams.N_emb_xyz+3,
                                   in_channels_dir=6*hparams.N_emb_dir+3)
+            
+            # self.nerf_fine = NeRF_TCNN(
+            #                     encoding="hashgrid",
+            #                 )
             self.models['fine'] = self.nerf_fine
             load_ckpt(self.nerf_fine, hparams.weight_path, 'nerf_fine')
 
     def forward(self, rays):
         """Do batched inference on rays using chunk."""
         B = rays.shape[0]
-        print("rays.shapeeeee", rays.shape)
         results = defaultdict(list)
         for i in range(0, B, self.hparams.chunk):
-            print("rays[i:i+self.hparams.chunk]", rays[i:i+self.hparams.chunk].shape)
+            # print("=========================\n\n\n")
+            # print("i", i)
+            # print("i+self.hparams.chunk")
+            # print("rayssssssss", rays.shape)
+            # print("self.hparams.chunk", self.hparams.chunk)
+            # print("rays[i:i+self.hparams.chunk]", rays[i:i+self.hparams.chunk].shape)
+            # print("=========================\n\n\n")
             rendered_ray_chunks = \
                 render_rays(self.models,
                             self.embeddings,
@@ -77,69 +97,93 @@ class NeRFSystem(LightningModule):
 
         for k, v in results.items():
             results[k] = torch.cat(v, 0)
-            print("k, v", k, results[k].shape)
         return results
 
     def setup(self, stage):
         dataset = dataset_dict[self.hparams.dataset_name]
-        kwargs = {'root_dir': self.hparams.root_dir,
+        if self.hparams.dataset_name == 'llff' or self.hparams.dataset_name == 'llff_nocs' or self.hparams.dataset_name =='nocs_bckg' or self.hparams.dataset_name=='llff_nsff':
+            kwargs = {'root_dir': self.hparams.root_dir,
                   'img_wh': tuple(self.hparams.img_wh)}
-        if self.hparams.dataset_name == 'llff' or self.hparams.dataset_name == 'llff_nocs':
             kwargs['spheric_poses'] = self.hparams.spheric_poses
             kwargs['val_num'] = self.hparams.num_gpus
+        elif self.hparams.dataset_name == 'objectron' or self.hparams.dataset_name == 'pd' or self.hparams.dataset_name == 'pd_multi_obj':
+            kwargs = {'root_dir': self.hparams.root_dir,
+                      'img_wh': tuple(self.hparams.img_wh),
+                      'white_back': self.hparams.white_back,
+                      'model_type': 'Vanilla'}
+        elif self.hparams.dataset_name == 'co3d':
+            kwargs = {'data_dir': self.hparams.root_dir}
+            kwargs['category'] = 'laptop'
+            kwargs['instance'] = '112_13277_23636'
         self.train_dataset = dataset(split='train', **kwargs)
+        #hard coding
         self.val_dataset = dataset(split='val', **kwargs)
 
     def configure_optimizers(self):
-        self.optimizer = get_optimizer(self.hparams, self.models)
-        scheduler = get_scheduler(self.hparams, self.optimizer)
+        # self.optimizer = get_optimizer_tcnn(self.hparams, self.models)
+        # scheduler = get_scheduler_tcnn(self.hparams, self.optimizer)
+        if self.hparams.use_tcnn:
+            self.optimizer = get_optimizer_tcnn(self.hparams, self.models)
+            scheduler = get_scheduler_tcnn(self.hparams, self.optimizer)
+        else:
+            self.optimizer = get_optimizer(self.hparams, self.models)
+            scheduler = get_scheduler(self.hparams, self.optimizer)
+        
         return [self.optimizer], [scheduler]
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
                           shuffle=True,
-                          num_workers=4,
+                          num_workers=16,
                           batch_size=self.hparams.batch_size,
                           pin_memory=True)
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset,
                           shuffle=False,
-                          num_workers=4,
+                          num_workers=0,
                           batch_size=1, # validate one image (H*W rays) at a time
-                          pin_memory=True)
+                          pin_memory=False)
     
     def training_step(self, batch, batch_nb):
-
-        rgbs, valid_mask = batch['rgbs'], batch['valid_masks']
-        print("rgbs, valid_mask", rgbs.shape, valid_mask.shape)
-
-        for k,v in batch.items():
-            print("k,v", k, v.shape)
         rays, rgbs = batch['rays'], batch['rgbs']
-
-        print("batch['rgbs']", batch['rgbs'].shape)
+        # for k,v in batch.items():
+        #     print(k,v.shape)
         results = self(rays)
-        loss = self.loss(results, rgbs)
-
+        loss = self.loss(results, batch)
+        # loss_sum, loss_dict = self.loss(results, batch)
         with torch.no_grad():
             typ = 'fine' if 'rgb_fine' in results else 'coarse'
             psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
-
         self.log('lr', get_learning_rate(self.optimizer))
         self.log('train/loss', loss)
-        self.log('train/psnr', psnr_, prog_bar=True)
 
+        # for k, v in loss_dict.items():
+        #     self.log(f"train/{k}", v)
+
+        self.log('train/psnr', psnr_, prog_bar=True)
         return loss
+        # return loss_sum
 
     def validation_step(self, batch, batch_nb):
         rays, rgbs = batch['rays'], batch['rgbs']
+        for k,v in batch.items():
+            if k =='img_wh':
+                continue
+            print(k,v.shape)
         rays = rays.squeeze() # (H*W, 3)
         rgbs = rgbs.squeeze() # (H*W, 3)
         results = self(rays)
-        log = {'val_loss': self.loss(results, rgbs)}
+
+        batch['rgbs'] = batch['rgbs'].squeeze()
+        # batch['fused_depth'] = batch['fused_depth'].squeeze()
+        # loss_sum, loss_dict = self.loss(results, batch) 
+        # log = {"val_loss": loss_sum}
+        # log.update(loss_dict)
+        log = {'val_loss': self.loss(results, batch)}
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
     
+<<<<<<< HEAD
         if batch_nb == 0:
             W, H = self.hparams.img_wh
             img = results[f'rgb_{typ}'].view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
@@ -156,6 +200,29 @@ class NeRFSystem(LightningModule):
 
             # self.logger.experiment.add_images('val/GT_pred_depth',
             #                                    stack, self.global_step)
+=======
+        rank = dist.get_rank()
+        if rank==0:
+            if batch_nb == 0:
+                print("batch['img_wh']", batch['img_wh'])
+                print("hparams img wh", self.hparams.img_wh)
+                W, H = batch['img_wh']
+                img = results[f'rgb_{typ}'].view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
+                img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
+                depth = visualize_depth(results[f'depth_{typ}'].view(H, W)) # (3, H, W)
+                print("img gt deth before",img_gt.shape, depth.shape)
+
+                # if self.hparams.dataset_name == 'objectron':
+                #      img_gt = torch.rot90(img_gt.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+                #      depth = torch.rot90(depth.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+                #      img = torch.rot90(img.permute(1,2,0), dims=(1, 0)).permute(2,0,1)
+
+                images = {"gt":img_gt, "predicted": img, "depth": depth}
+                self.logger.experiment.log({
+                    "Val images": [wandb.Image(img, caption=caption)
+                    for caption, img in images.items()]
+                })
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         psnr_ = psnr(results[f'rgb_{typ}'], rgbs)
         log['val_psnr'] = psnr_
 

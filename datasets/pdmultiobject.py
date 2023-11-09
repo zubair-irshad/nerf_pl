@@ -49,6 +49,7 @@ import glob
 
 #     return all_c2w_train, all_c2w_test, focal, img_wh
 
+<<<<<<< HEAD
 # def read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_val, output_boxes = False):
 #     pose_file_train = os.path.join(pose_dir_train, 'pose.json')
 #     pose_file_val = os.path.join(pose_dir_val, 'pose.json')
@@ -118,6 +119,37 @@ def read_poses(pose_dir_train, img_files_train, output_boxes = False):
     all_c2w_train = np.array(all_c2w_train)
     pose_scale_factor = 1. / np.max(np.abs(all_c2w_train[:, :3, 3]))
     all_c2w_train[:, :3, 3] *= pose_scale_factor
+=======
+def read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_val, output_boxes = False):
+    pose_file_train = os.path.join(pose_dir_train, 'pose.json')
+    pose_file_val = os.path.join(pose_dir_val, 'pose.json')
+    with open(pose_file_train, "r") as read_content:
+        data = json.load(read_content)
+    with open(pose_file_val, "r") as read_content:
+        data_val = json.load(read_content)
+    focal = data['focal']
+    img_wh = data['img_size']
+    obj_location = np.array(data["obj_location"])
+    all_c2w = []
+    all_c2w_train = []
+    all_c2w_test = []
+    for img_file in img_files_train:
+        c2w = np.array(data['transform'][img_file.split('.')[0]])
+        c2w[:3, 3] = c2w[:3, 3] - obj_location
+        all_c2w.append(convert_pose_PD_to_NeRF(c2w))
+        all_c2w_train.append(convert_pose_PD_to_NeRF(c2w))
+    for img_file in img_files_val:
+        c2w = np.array(data_val['transform'][img_file.split('.')[0]])
+        c2w[:3, 3] = c2w[:3, 3] - obj_location
+        all_c2w.append(convert_pose_PD_to_NeRF(c2w))
+        all_c2w_test.append(convert_pose_PD_to_NeRF(c2w))
+    all_c2w = np.array(all_c2w)
+    all_c2w_train = np.array(all_c2w_train)
+    all_c2w_test = np.array(all_c2w_test)
+    pose_scale_factor = 1. / np.max(np.abs(all_c2w[:, :3, 3]))
+    all_c2w_train[:, :3, 3] *= pose_scale_factor
+    all_c2w_test[:, :3, 3] *= pose_scale_factor
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     all_c2w_val = all_c2w_train[100:]
     all_c2w_train = all_c2w_train[:100]
     # Get bounding boxes for object MLP training only
@@ -132,6 +164,7 @@ def read_poses(pose_dir_train, img_files_train, output_boxes = False):
                 all_rotations.append(data["obj_rotations"][k])
                 translation = (np.array(data['obj_translations'][k])- obj_location)*pose_scale_factor
                 all_translations.append(translation)
+<<<<<<< HEAD
         RTs = {'R': all_rotations, 'T': all_translations, 's': all_boxes}
         return all_c2w_train, all_c2w_val, focal, img_wh, RTs, pose_scale_factor
     else:
@@ -163,6 +196,15 @@ def move_camera_pose(pose, progress):
     center = np.array([np.cos(t), -np.sin(t), -np.sin(0.5 * t)]) * radii
     pose[:3, 3] += pose[:3, :3] @ center
     return pose
+=======
+        # Old scenes uncomment here
+        # all_translations = (np.array(data['obj_translations'])- obj_location)*pose_scale_factor
+        # all_rotations = data["obj_rotations"]
+        RTs = {'R': all_rotations, 'T': all_translations, 's': all_boxes}
+        return all_c2w_train, all_c2w_val, all_c2w_test, focal, img_wh, RTs
+    else:
+        return all_c2w_train, all_c2w_val, all_c2w_test, focal, img_wh
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
 class PDMultiObject(Dataset):
     def __init__(self, root_dir, split='train', img_wh=(1600, 1600), 
@@ -176,6 +218,7 @@ class PDMultiObject(Dataset):
         self.read_meta()
         self.white_back = False
         self.eval_inference = eval_inference
+<<<<<<< HEAD
         w, h = self.img_wh
         if self.eval_inference is not None:
             # eval_num = int(self.eval_inference[0])
@@ -184,27 +227,37 @@ class PDMultiObject(Dataset):
             self.image_sizes = np.array([[h, w] for i in range(num)])
         else:
             self.image_sizes = np.array([[h, w] for i in range(1)])
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
     def read_meta(self):
         base_dir_train = os.path.join(self.root_dir, 'train')
         img_files_train = os.listdir(os.path.join(base_dir_train, 'rgb'))
         img_files_train.sort()
 
+<<<<<<< HEAD
 
+=======
+        self.base_dir_val = base_dir_train
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         
         base_dir_test = os.path.join(self.root_dir, 'val')
         img_files_test = os.listdir(os.path.join(base_dir_test, 'rgb'))
         img_files_test.sort()
+<<<<<<< HEAD
         pose_dir_test = os.path.join(self.root_dir, 'val', 'pose')
 
         # base_dir_test = os.path.join(self.root_dir, 'val')
         # img_files_test = os.listdir(os.path.join(base_dir_test, 'rgb'))
         # img_files_test.sort()
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
         # self.all_unique_ids = [1167, 1168, 1169, 1170]
         self.near = 0.2
         self.far = 3.0
         pose_dir_train = os.path.join(self.root_dir, 'train', 'pose')
+<<<<<<< HEAD
         # pose_dir_val = os.path.join(self.root_dir, 'val', 'pose')
 
         if self.split == 'train':
@@ -232,18 +285,34 @@ class PDMultiObject(Dataset):
             self.base_dir_val = base_dir_test
             img_files_train = img_files_test
 
+=======
+        pose_dir_val = os.path.join(self.root_dir, 'val', 'pose')
+
+        if self.split == 'train':
+            all_c2w, all_c2w_val, _, self.focal, self.img_size, _ = read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_test, output_boxes=True)
+        elif self.split == 'val':
+            all_c2w, all_c2w_val, _, self.focal, self.img_size, _ = read_poses(pose_dir_train, pose_dir_val, img_files_train, img_files_test, output_boxes=True)
+
+        self.img_files_val = img_files_train[100:]        
+        self.all_c2w_val = all_c2w_val
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         print("all c2w", all_c2w.shape)
         w, h = self.img_wh
         print("self.focal", self.focal)
         self.focal *=(self.img_wh[0]/self.img_size[0])  # modify focal length to match size self.img_wh
         print("self.focal after", self.focal)
+<<<<<<< HEAD
         
         if self.split == 'train' or self.split =='test': # create buffer of all rays and rgb data
+=======
+        if self.split == 'train': # create buffer of all rays and rgb data
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             self.all_rays = []
             self.all_rgbs = []
             self.all_rays_d = []
             self.all_radii = []
 
+<<<<<<< HEAD
             # num = 3
             # src_views_num = [0, 38, 44, 94, 48]
             # if num ==3:
@@ -259,6 +328,20 @@ class PDMultiObject(Dataset):
             #     src_views_num = [7]
             NV =  100
 
+=======
+            num = 9
+            if num ==3:
+                src_views_num = [7, 50, 66]
+            elif num ==5:
+                src_views_num = [7, 28, 50, 66, 75]
+            elif num ==7:
+                src_views_num = [7, 28, 39, 50, 64, 66, 75]
+            elif num ==9:
+                src_views_num = [7, 21, 28, 39, 45, 50, 64, 66, 75]
+            elif num ==1:
+                src_views_num = [7]
+            NV =  100
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             for train_image_id in range(0, NV):
             # for i, img_name in enumerate(self.img_files):
                 if train_image_id not in src_views_num:
@@ -272,7 +355,12 @@ class PDMultiObject(Dataset):
                 img = Image.open(os.path.join(base_dir_train, 'rgb', img_name))                
                 img = img.resize((w,h), Image.LANCZOS)
                 img = self.transform(img) # (h, w, 3)
+<<<<<<< HEAD
                 img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA                
+=======
+                img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                 self.all_rays += [torch.cat([rays_o, view_dirs, 
                                             self.near*torch.ones_like(rays_o[:, :1]),
                                             self.far*torch.ones_like(rays_o[:, :1])],
@@ -286,12 +374,16 @@ class PDMultiObject(Dataset):
             self.all_rays_d = torch.cat(self.all_rays_d, 0)
             self.all_radii = torch.cat(self.all_radii, 0)
 
+<<<<<<< HEAD
             print("self.all rays", self.all_rays.shape)
 
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     def define_transforms(self):
         self.transform = T.ToTensor()
 
     def __len__(self):
+<<<<<<< HEAD
         if self.split == 'train' or self.split=='test':
             return len(self.all_rays)
         if self.split == 'val' or self.split =='test_val':
@@ -299,12 +391,24 @@ class PDMultiObject(Dataset):
                 # num = int(self.eval_inference[0])
                 # return (100-num)
                 return 40
+=======
+        if self.split == 'train':
+            return len(self.all_rays)
+        if self.split == 'val':
+            if self.eval_inference is not None:
+                num = int(self.eval_inference[0])
+                return (100-num)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             else:
                 return 1
         return len(self.meta)
 
     def __getitem__(self, idx):
+<<<<<<< HEAD
         if self.split == 'train' or self.split == 'test': # use data in the buffers
+=======
+        if self.split == 'train': # use data in the buffers
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             # rand_instance_id = torch.randint(0, len(self.all_unique_ids), (1,))
             if self.model_type == "vanilla":
                 sample = {
@@ -321,6 +425,7 @@ class PDMultiObject(Dataset):
                 sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
                 sample["normals"] = np.zeros_like(sample["rays_o"])
 
+<<<<<<< HEAD
         elif self.split == 'val' or self.split =='test_val': # create data for each image separately
             if self.eval_inference:
                 # num = int(self.eval_inference[0])
@@ -339,6 +444,10 @@ class PDMultiObject(Dataset):
                 # eval_list = list(set(all_num).difference(src_views_num))
                 # dest_view_num = eval_list[idx]
                 # val_idx = dest_view_num
+=======
+        elif self.split == 'val': # create data for each image separately
+            if self.eval_inference:
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                 val_idx = idx
             else:
                 val_idx = 15
@@ -353,6 +462,7 @@ class PDMultiObject(Dataset):
             img = self.transform(img) # (h, w, 3)
             img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
 
+<<<<<<< HEAD
             seg_mask = Image.open(os.path.join(self.base_dir_val, 'semantic_segmentation_2d', img_name))
             # seg_mask = seg_mask.resize((w,h), Image.LANCZOS)
             seg_mask =  np.array(seg_mask)
@@ -362,6 +472,8 @@ class PDMultiObject(Dataset):
             instance_mask = seg_mask >0
             instance_mask = self.transform(instance_mask).view(-1)
 
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             rays = torch.cat([rays_o, view_dirs, 
                                         self.near*torch.ones_like(rays_o[:, :1]),
                                         self.far*torch.ones_like(rays_o[:, :1])],
@@ -378,7 +490,10 @@ class PDMultiObject(Dataset):
                     sample["rays_d"] = view_dirs
                     sample["viewdirs"] = rays[:,3:6]
                     sample["target"] = img
+<<<<<<< HEAD
                     sample["instance_mask"] = instance_mask
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                     sample["radii"] = radii
                     sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
                     sample["normals"] = np.zeros_like(sample["rays_o"])

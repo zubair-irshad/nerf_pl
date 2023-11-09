@@ -6,6 +6,7 @@ from torch import nn
 import torch.nn.functional as F
 import torchvision
 import sys
+<<<<<<< HEAD
 sys.path.append('/home/zubairirshad/nerf_pl')
 from models.vanilla_nerf.util import get_norm_layer
 # from model.custom_encoder import ConvEncoder
@@ -173,6 +174,12 @@ class FeatureAggregator(nn.Module):
         x = self.conv2(x)
         x = self.relu2(x)
         return x
+=======
+sys.path.append('/home/ubuntu/nerf_pl')
+from models.nerfplusplus.util import get_norm_layer
+# from model.custom_encoder import ConvEncoder
+import torch.autograd.profiler as profiler
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
 class SpatialEncoder(nn.Module):
     """
@@ -223,14 +230,62 @@ class SpatialEncoder(nn.Module):
             self.latent_size = self.model.dims[-1]
         else:
             print("Using torchvision", backbone, "encoder")
+<<<<<<< HEAD
             self.model = CustomResNet34()
             self.feature_aggregator = FeatureAggregator()
+=======
+            self.model = getattr(torchvision.models, backbone)(
+                pretrained=pretrained, norm_layer=norm_layer
+            )
+            # Following 2 lines need to be uncommented for older configs
+            self.model.fc = nn.Sequential()
+            self.model.avgpool = nn.Sequential()
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             self.latent_size = [0, 64, 128, 256, 512, 1024][num_layers]
 
         self.num_layers = num_layers
         self.index_interp = index_interp
         self.index_padding = index_padding
         self.upsample_interp = upsample_interp
+<<<<<<< HEAD
+=======
+        self.register_buffer("latent", torch.empty(1, 1, 1, 1), persistent=False)
+        self.register_buffer(
+            "latent_scaling", torch.empty(2, dtype=torch.float32), persistent=False
+        )
+        # self.latent (B, L, H, W)
+
+    def index(self, uv, cam_z=None, image_size=(), z_bounds=None):
+        """
+        Get pixel-aligned image features at 2D image coordinates
+        :param uv (B, N, 2) image points (x,y)
+        :param cam_z ignored (for compatibility)
+        :param image_size image size, either (width, height) or single int.
+        if not specified, assumes coords are in [-1, 1]
+        :param z_bounds ignored (for compatibility)
+        :return (B, L, N) L is latent size
+        """
+        with profiler.record_function("encoder_index"):
+            if uv.shape[0] == 1 and self.latent.shape[0] > 1:
+                uv = uv.expand(self.latent.shape[0], -1, -1)
+
+            with profiler.record_function("encoder_index_pre"):
+                if len(image_size) > 0:
+                    if len(image_size) == 1:
+                        image_size = (image_size, image_size)
+                    scale = self.latent_scaling / image_size
+                    uv = uv * scale - 1.0
+
+            uv = uv.unsqueeze(2)  # (B, N, 1, 2)
+            samples = F.grid_sample(
+                self.latent,
+                uv,
+                align_corners=True,
+                mode=self.index_interp,
+                padding_mode=self.index_padding,
+            )
+            return samples[:, :, :, 0]  # (B, C, N)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
     def forward(self, x):
         """
@@ -246,20 +301,32 @@ class SpatialEncoder(nn.Module):
                 align_corners=True if self.feature_scale > 1.0 else None,
                 recompute_scale_factor=True,
             )
+<<<<<<< HEAD
         # x = x.to(device=self.latent.device)
+=======
+        x = x.to(device=self.latent.device)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
         if self.use_custom_resnet:
             self.latent = self.model(x)
         else:
+<<<<<<< HEAD
             print("x", x.shape)
             x = self.model.conv1(x)
             x = self.model.bn1(x)
             x = self.model.relu(x)
             print("x", x.shape)
+=======
+            x = self.model.conv1(x)
+            x = self.model.bn1(x)
+            x = self.model.relu(x)
+
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             latents = [x]
             if self.num_layers > 1:
                 if self.use_first_pool:
                     x = self.model.maxpool(x)
+<<<<<<< HEAD
                 print("x after first pool", x.shape)
                 x = self.model.layer1(x)
                 print("x after 1", x.shape)
@@ -283,12 +350,31 @@ class SpatialEncoder(nn.Module):
             print("latents", latent_sz)
             for i in range(len(latents)):
                 print("latents[i] before", latents[i].shape)
+=======
+                x = self.model.layer1(x)
+                latents.append(x)
+            if self.num_layers > 2:
+                x = self.model.layer2(x)
+                latents.append(x)
+            if self.num_layers > 3:
+                x = self.model.layer3(x)
+                latents.append(x)
+            if self.num_layers > 4:
+                x = self.model.layer4(x)
+                latents.append(x)
+
+            self.latents = latents
+            align_corners = None if self.index_interp == "nearest " else True
+            latent_sz = latents[0].shape[-2:]
+            for i in range(len(latents)):
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                 latents[i] = F.interpolate(
                     latents[i],
                     latent_sz,
                     mode=self.upsample_interp,
                     align_corners=align_corners,
                 )
+<<<<<<< HEAD
                 print("latents[i] after", latents[i].shape)
             # self.latent = torch.cat(latents, dim=1)
             latent = torch.cat(latents, dim=1)
@@ -300,6 +386,13 @@ class SpatialEncoder(nn.Module):
         # print("self.latent_scaling", self.latent_scaling)
         # self.latent_scaling = self.latent_scaling / (self.latent_scaling - 1) * 2.0
         return latent
+=======
+            self.latent = torch.cat(latents, dim=1)
+        self.latent_scaling[0] = self.latent.shape[-1]
+        self.latent_scaling[1] = self.latent.shape[-2]
+        self.latent_scaling = self.latent_scaling / (self.latent_scaling - 1) * 2.0
+        return self.latent
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
     @classmethod
     def from_conf(cls, conf):
@@ -315,6 +408,7 @@ class SpatialEncoder(nn.Module):
         )
 
 
+<<<<<<< HEAD
 # class SpatialEncoder(nn.Module):
 #     """
 #     2D (Spatial/Pixel-aligned/local) image encoder
@@ -487,6 +581,8 @@ class SpatialEncoder(nn.Module):
 #         )
 
 
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 class ImageEncoder(nn.Module):
     """
     Global image encoder
@@ -501,9 +597,14 @@ class ImageEncoder(nn.Module):
         """
         super().__init__()
         self.model = getattr(torchvision.models, backbone)(pretrained=pretrained)
+<<<<<<< HEAD
         
         self.model.fc = nn.Sequential()
         # self.register_buffer("latent", torch.empty(1, 1), persistent=False)
+=======
+        self.model.fc = nn.Sequential()
+        self.register_buffer("latent", torch.empty(1, 1), persistent=False)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         # self.latent (B, L)
         self.latent_size = latent_size
         if latent_size != 512:
@@ -551,6 +652,7 @@ class ImageEncoder(nn.Module):
             latent_size=conf.get_int("latent_size", 128),
         )
 
+<<<<<<< HEAD
 class ConvBnReLU(nn.Module):
     def __init__(self, in_channels, out_channels,
                  kernel_size=3, stride=1, pad=1,
@@ -859,3 +961,10 @@ if __name__ == "__main__":
     # print(encoder)
     # print("=========================\n\n\n")
     # print("self.latent_scaling", self.latent_scaling)
+=======
+if __name__ == "__main__":
+    encoder = SpatialEncoder()
+    img = torch.randn((3,3,240,320))
+    encoder(img)
+    print(encoder.latent.shape)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0

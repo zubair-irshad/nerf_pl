@@ -24,15 +24,17 @@ def get_opts():
                         default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff'],
+                        choices=['blender', 'llff', 'google_scanned', 'srn', 'objectron', 'llff_nsff', 'pd'],
                         help='which dataset to validate')
+    parser.add_argument('--white_back', default=False, action="store_true",
+                        help='use disparity depth sampling')
     parser.add_argument('--scene_name', type=str, default='test',
                         help='scene name, used as output folder name')
     parser.add_argument('--split', type=str, default='test',
                         help='test or test_train')
     parser.add_argument('--img_wh', nargs="+", type=int, default=[800, 800],
                         help='resolution (img_w, img_h) of the image')
-    parser.add_argument('--spheric_poses', default=False, action="store_true",
+    parser.add_argument('--spheric_poses', default=True, action="store_true",
                         help='whether images are taken in spheric poses (for llff)')
 
     parser.add_argument('--N_emb_xyz', type=int, default=10,
@@ -51,7 +53,7 @@ def get_opts():
     parser.add_argument('--ckpt_path', type=str, required=True,
                         help='pretrained checkpoint path to load')
 
-    parser.add_argument('--save_depth', default=False, action="store_true",
+    parser.add_argument('--save_depth', default=True, action="store_true",
                         help='whether to save depth prediction')
     parser.add_argument('--depth_format', type=str, default='pfm',
                         choices=['pfm', 'bytes'],
@@ -96,8 +98,11 @@ if __name__ == "__main__":
     kwargs = {'root_dir': args.root_dir,
               'split': args.split,
               'img_wh': tuple(args.img_wh)}
-    if args.dataset_name == 'llff':
+    if args.dataset_name == 'llff' or args.dataset_name == 'llff_nsff':
         kwargs['spheric_poses'] = args.spheric_poses
+    if args.dataset_name =='pd':
+        kwargs['white_back'] = args.white_back
+
     dataset = dataset_dict[args.dataset_name](**kwargs)
 
     embedding_xyz = Embedding(args.N_emb_xyz)
@@ -142,6 +147,7 @@ if __name__ == "__main__":
 
         img_pred_ = (img_pred * 255).astype(np.uint8)
         imgs += [img_pred_]
+        img_pred_save = np.rot90(img_pred_, axes=(1,0))
         imageio.imwrite(os.path.join(dir_name, f'{i:03d}.png'), img_pred_)
 
         if 'rgbs' in sample:
@@ -161,3 +167,4 @@ if __name__ == "__main__":
     if psnrs:
         mean_psnr = np.mean(psnrs)
         print(f'Mean PSNR : {mean_psnr:.2f}')
+

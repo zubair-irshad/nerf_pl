@@ -9,18 +9,21 @@ from torch.utils.data import DataLoader
 from datasets import dataset_dict
 # models
 from models.nerf import *
-from models.rendering_compositional import *
+# from models.rendering_compositional import *
+from models.rendering_compositional_combined import *
+
+# from models.rendering_compositional_symmetric import *
 from models.code_library import *
 from utils.train_helper import visualize_val_image
 # optimizer, scheduler, visualization
 from utils import *
 
 # losses
-from losses import get_loss
+from losses import get_loss, get_sym_loss
 
 # metrics
 from metrics import *
-
+from dotmap import DotMap
 # pytorch-lightning
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
@@ -35,25 +38,33 @@ class NeRFSystem(LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.save_hyperparameters(hparams)
-
+        print("hparams", hparams)
+        #only do this for loading checkpoint/inference
+        if type(hparams) is dict:
+            hparams = DotMap(hparams)
         # self.loss = loss_dict['color'](coef=1)
         self.loss = get_loss(hparams)
+        # self.loss = get_sym_loss(hparams)
 
         self.embedding_xyz = Embedding(hparams.N_emb_xyz)
         self.embedding_dir = Embedding(hparams.N_emb_dir)
         self.embeddings = {'xyz': self.embedding_xyz,
                            'dir': self.embedding_dir}
 
-        self.nerf_coarse = ObjectNeRF(hparams)
+        # self.nerf_coarse = ObjectNeRF(hparams)
+        # self.nerf_coarse = ObjectBckgNeRFConditional(hparams)
+        self.nerf_coarse = ObjectBckgNeRFGSN(hparams)
         self.models = {'coarse': self.nerf_coarse}
         # load_ckpt(self.nerf_coarse, hparams.weight_path, 'nerf_coarse')
 
         if hparams.N_importance > 0:
-            self.nerf_fine = ObjectNeRF(hparams)
+            # self.nerf_fine = ObjectNeRF(hparams)
+            self.nerf_fine = ObjectBckgNeRFGSN(hparams)
             self.models['fine'] = self.nerf_fine
             # load_ckpt(self.nerf_fine, hparams.weight_path, 'nerf_fine')
 
-        self.code_library = CodeLibrary(hparams)
+        # self.code_library = CodeLibrary(hparams)
+        self.code_library = CodeLibraryBckgObjShapeApp(hparams)
 
         self.models_to_train = [
             self.models,
@@ -68,7 +79,9 @@ class NeRFSystem(LightningModule):
         for i in range(0, B, self.hparams.chunk):
             extra_chunk = dict()
             for k, v in extra.items():
-                if isinstance(v, torch.Tensor):
+                if k == 'embedding_backgrounds':
+                    extra_chunk[k] = v
+                elif isinstance(v, torch.Tensor):
                     extra_chunk[k] = v[i : i + self.hparams.chunk]
                 else:
                     extra_chunk[k] = v
@@ -95,11 +108,18 @@ class NeRFSystem(LightningModule):
 
     def setup(self, stage):
         dataset = dataset_dict[self.hparams.dataset_name]
-        kwargs = {'root_dir': self.hparams.root_dir,
-                  'img_wh': tuple(self.hparams.img_wh)}
         if self.hparams.dataset_name == 'llff' or self.hparams.dataset_name == 'llff_nocs':
+            kwargs = {'root_dir': self.hparams.root_dir,
+                  'img_wh': tuple(self.hparams.img_wh)}
             kwargs['spheric_poses'] = self.hparams.spheric_poses
             kwargs['val_num'] = self.hparams.num_gpus
+        elif self.hparams.dataset_name == 'objectron' or self.hparams.dataset_name=='pd' or self.hparams.dataset_name=='pdmultiobject':
+            kwargs = {'root_dir': self.hparams.root_dir,
+                  'img_wh': tuple(self.hparams.img_wh)}
+        elif self.hparams.dataset_name == 'co3d':
+            kwargs = {'data_dir': self.hparams.root_dir}
+            kwargs['category'] = 'car'
+            kwargs['instance'] = '106_12662_23043'
         self.train_dataset = dataset(split='train', **kwargs)
         self.val_dataset = dataset(split='val', **kwargs)
 
@@ -123,6 +143,8 @@ class NeRFSystem(LightningModule):
                           pin_memory=True)
     
     def training_step(self, batch, batch_nb):
+        for k,v in batch.items():
+            print(k,v.shape)
         rays, rgbs = batch["rays"], batch["rgbs"]
         rays = rays.squeeze()  # (H*W, 3)
         rgbs = rgbs.squeeze()  # (H*W, 3)
@@ -151,6 +173,9 @@ class NeRFSystem(LightningModule):
 
     def validation_step(self, batch, batch_nb):
         rays, rgbs = batch['rays'], batch['rgbs']
+        for k,v in batch.items():
+            if torch. is_tensor(v):
+                print(k,v.shape)
         rays = rays.squeeze() # (H*W, 3)
         rgbs = rgbs.squeeze() # (H*W, 3)
 
@@ -159,6 +184,10 @@ class NeRFSystem(LightningModule):
         extra_info["rays_in_bbox"] = False
         extra_info["frustum_bound_th"] = -1
         extra_info.update(self.code_library(batch))
+
+        for k,v in extra_info.items():
+            if torch. is_tensor(v):
+                print(k,v.shape)
         results = self(rays, extra_info)
         loss_sum, loss_dict = self.loss(results, batch)
         for k, v in loss_dict.items():
@@ -168,9 +197,10 @@ class NeRFSystem(LightningModule):
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
     
         if batch_nb == 0:
+            W, H = batch['img_wh']
 
             grid_img = visualize_val_image(
-                self.hparams.img_wh, batch, results, typ=typ
+                (W,H), batch, results, typ=typ
             )
             self.logger.experiment.log({
                 "val/GT_pred images": wandb.Image(grid_img)
@@ -212,12 +242,12 @@ def main(hparams):
                       logger=wandb_logger,
                       enable_model_summary=False,
                       gpus=hparams.num_gpus,
-                      accelerator="ddp" if hparams.num_gpus > 1 else "auto",
+                      accelerator="gpu" if hparams.num_gpus > 1 else "auto",
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=1,
                       benchmark=True,
                       profiler="simple" if hparams.num_gpus==1 else None,
-                      val_check_interval=0.75,
+                    #   val_check_interval=0.75,
                       strategy=DDPPlugin(find_unused_parameters=False) if hparams.num_gpus>1 else None)
     trainer.fit(system)
 

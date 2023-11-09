@@ -9,6 +9,7 @@ import functools
 import math
 import warnings
 
+<<<<<<< HEAD
 # def get_world_grid(side_lengths, grid_size):
 #     """ Returns a 3D grid of points in world coordinates.
 #     :param side_lengths: (min, max) for each axis (3, 2)
@@ -26,6 +27,8 @@ import warnings
 #     w_xyz = w_xyz.reshape(-1, 3).unsqueeze(0) # (1, grid_size**3, 3)
 #     return w_xyz
 
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 def get_world_grid(side_lengths, grid_size):
     """ Returns a 3D grid of points in world coordinates.
     :param side_lengths: (min, max) for each axis (3, 2)
@@ -38,7 +41,11 @@ def get_world_grid(side_lengths, grid_size):
     w_x = torch.linspace(side_lengths[0][0], side_lengths[0][1], grid_size[0])
     w_y = torch.linspace(side_lengths[1][0], side_lengths[1][1], grid_size[1])
     w_z = torch.linspace(side_lengths[2][0], side_lengths[2][1], grid_size[2])
+<<<<<<< HEAD
     X, Y, Z = torch.meshgrid(w_x, w_y, w_z)
+=======
+    Z, Y, X = torch.meshgrid(w_x, w_y, w_z)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     w_xyz = torch.stack([X, Y, Z], axis=-1) # (gs, gs, gs, 3), gs = grid_size
     w_xyz = w_xyz.reshape(-1, 3).unsqueeze(0) # (1, grid_size**3, 3)
     return w_xyz
@@ -70,6 +77,7 @@ def world2camera(w_xyz, cam2world, NS=None):
     # cam_xyz = cam_xyz.reshape(-1, 3)  # (SB*B, 3)
     return cam_xyz
 
+<<<<<<< HEAD
 
 def w2i_projection(w_xyz, cam2world, intrinsics):
     """Converts the points in world coordinates to camera view.
@@ -90,6 +98,8 @@ def w2i_projection(w_xyz, cam2world, intrinsics):
     uv = torch.clamp(uv, min=-1e6, max=1e6)
     return camera_grids, uv, mask
 
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 def projection(c_xyz, focal, c, NV=None):
     """Converts [x,y,z] in camera coordinates to image coordinates 
         for the given focal length focal and image center c.
@@ -648,6 +658,7 @@ def get_module(net):
     if isinstance(net, torch.nn.DataParallel):
         return net.module
     else:
+<<<<<<< HEAD
         return net
     
 # Copyright 2020 Google LLC
@@ -865,3 +876,6 @@ def get_nearest_pose_ids(tar_pose, ref_poses, num_select=10, tar_id=-1, angular_
     selected_ids = sorted_ids[:num_select]
     # print(angular_dists[selected_ids] * 180 / np.pi)
     return selected_ids
+=======
+        return net
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0

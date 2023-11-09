@@ -5,9 +5,22 @@ import numpy as np
 import os
 from PIL import Image
 from torchvision import transforms as T
+<<<<<<< HEAD
 from .ray_utils import *
 from .nocs_utils import rebalance_mask
 # from utils.test_poses import *
+=======
+import cv2
+from objectron.schema import a_r_capture_metadata_pb2 as ar_metadata_protocol
+# from .google_scanned_utils import load_image_from_exr, load_seg_from_exr
+import struct
+from .ray_utils import *
+from .nocs_utils import rebalance_mask
+import glob
+from objectron.schema import annotation_data_pb2 as annotation_protocol
+import glob
+from utils.test_poses import *
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 import random
 
 def read_poses(pose_dir, img_files):
@@ -43,6 +56,7 @@ class PD_Multi(Dataset):
         # self.samples_per_epoch = 5000
         self.samples_per_epoch = 200
 
+<<<<<<< HEAD
     def get_ray_batch(self, cam_rays, cam_view_dirs, cam_rays_d, img, instance_mask, instance_ids, ray_batch_size):
         # instance_mask = T.ToTensor()(instance_mask)
         # img = Image.fromarray(np.uint8(img))
@@ -74,6 +88,8 @@ class PD_Multi(Dataset):
 
         return rays, rays_d, view_dirs, rgbs, msk_gt, instance_ids
 
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     def read_train_data(self, instance_dir, image_id, latent_id):
         base_dir = os.path.join(self.base_dir, instance_dir, 'train')
         img_files = os.listdir(os.path.join(base_dir, 'rgb'))
@@ -184,16 +200,26 @@ class PD_Multi(Dataset):
             instance_dir = self.ids[train_idx]
             #100 is max number of images
             train_image_id = random.randint(0, 99)
+<<<<<<< HEAD
             cam_rays, cam_view_dirs, cam_rays_d, img_gt, _, instance_mask, _, instance_ids_gt =  self.read_train_data(instance_dir, train_image_id, latent_id = train_idx)
             rays, rays_d, view_dirs, img, instance_mask, instance_ids = self.get_ray_batch(cam_rays, cam_view_dirs, cam_rays_d, img_gt, instance_mask, instance_ids_gt, ray_batch_size=4096)
+=======
+            rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight, instance_ids =  self.read_train_data(instance_dir, train_image_id, latent_id = train_idx)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             
             if self.model_type == "Vanilla":
                 sample = {
                     "rays": rays,
                     "rgbs": img,
+<<<<<<< HEAD
                     # "img_wh": self.img_wh,
                     "instance_mask": instance_mask,
                     # "instance_mask_weight": instance_mask_weight,
+=======
+                    "img_wh": self.img_wh,
+                    "instance_mask": instance_mask,
+                    "instance_mask_weight": instance_mask_weight,
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                     "instance_ids": instance_ids
                 }
             else:
@@ -202,11 +228,19 @@ class PD_Multi(Dataset):
                 sample["rays_d"] = rays_d
                 sample["viewdirs"] = view_dirs
                 sample["target"] = img
+<<<<<<< HEAD
                 # sample["radii"] = radii
                 # sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
                 # sample["normals"] = np.zeros_like(sample["rays_o"])
                 sample["instance_mask"] = instance_mask
                 # sample["instance_mask_weight"] = instance_mask_weight
+=======
+                sample["radii"] = radii
+                sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
+                sample["normals"] = np.zeros_like(sample["rays_o"])
+                sample["instance_mask"] = instance_mask
+                sample["instance_mask_weight"] = instance_mask_weight
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                 sample["instance_ids"] = instance_ids
                 
 
@@ -217,16 +251,26 @@ class PD_Multi(Dataset):
             print("instance_dir", instance_dir)
             #100 is max number of images
             val_image_id = random.randint(0, 99)
+<<<<<<< HEAD
             cam_rays, cam_view_dirs, cam_rays_d, img_gt, _, instance_mask, _, instance_ids_gt =  self.read_val_data(instance_dir, val_image_id, latent_id = idx)
             rays, rays_d, view_dirs, img, instance_mask, instance_ids = self.get_ray_batch(cam_rays, cam_view_dirs, cam_rays_d, img_gt, instance_mask, instance_ids_gt, ray_batch_size=4096)
             
+=======
+            rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight, instance_ids =  self.read_val_data(instance_dir, val_image_id, latent_id = idx)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             if self.model_type == "Vanilla":
                 sample = {
                     "rays": rays,
                     "rgbs": img,
+<<<<<<< HEAD
                     # "img_wh": self.img_wh,
                     "instance_mask": instance_mask,
                     # "instance_mask_weight": instance_mask_weight,
+=======
+                    "img_wh": self.img_wh,
+                    "instance_mask": instance_mask,
+                    "instance_mask_weight": instance_mask_weight,
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                     "instance_ids": instance_ids
                     
                 }
@@ -236,11 +280,19 @@ class PD_Multi(Dataset):
                 sample["rays_d"] = rays_d
                 sample["viewdirs"] = view_dirs
                 sample["target"] = img
+<<<<<<< HEAD
                 # sample["radii"] = radii
                 # sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
                 # sample["normals"] = np.zeros_like(sample["rays_o"])
                 sample["instance_mask"] = instance_mask
                 # sample["instance_mask_weight"] = instance_mask_weight
+=======
+                sample["radii"] = radii
+                sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
+                sample["normals"] = np.zeros_like(sample["rays_o"])
+                sample["instance_mask"] = instance_mask
+                sample["instance_mask_weight"] = instance_mask_weight
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                 sample["instance_ids"] = instance_ids
 
         else:
@@ -248,14 +300,22 @@ class PD_Multi(Dataset):
             print("instance_dir", instance_dir)
             #100 is max number of images
             val_image_id = random.randint(0, 99)
+<<<<<<< HEAD
             rays, view_dirs, rays_d, img, radii, instance_mask, _, instance_ids =  self.read_val_data(instance_dir, val_image_id, latent_id = idx)
+=======
+            rays, view_dirs, rays_d, img, radii, instance_mask, instance_mask_weight, instance_ids =  self.read_val_data(instance_dir, val_image_id, latent_id = idx)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             if self.model_type == "Vanilla":
                 sample = {
                     "rays": rays,
                     "rgbs": img,
                     "img_wh": self.img_wh,
                     "instance_mask": instance_mask,
+<<<<<<< HEAD
                     # "instance_mask_weight": instance_mask_weight,
+=======
+                    "instance_mask_weight": instance_mask_weight,
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                     "instance_ids": instance_ids
                     
                 }
@@ -265,11 +325,19 @@ class PD_Multi(Dataset):
                 sample["rays_d"] = rays_d
                 sample["viewdirs"] = view_dirs
                 sample["target"] = img
+<<<<<<< HEAD
                 # sample["radii"] = radii
                 # sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
                 # sample["normals"] = np.zeros_like(sample["rays_o"])
                 sample["instance_mask"] = instance_mask
                 # sample["instance_mask_weight"] = instance_mask_weight
+=======
+                sample["radii"] = radii
+                sample["multloss"] = np.zeros((sample["rays_o"].shape[0], 1))
+                sample["normals"] = np.zeros_like(sample["rays_o"])
+                sample["instance_mask"] = instance_mask
+                sample["instance_mask_weight"] = instance_mask_weight
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                 sample["instance_ids"] = instance_ids
 
 

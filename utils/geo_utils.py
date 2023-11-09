@@ -116,9 +116,20 @@ def bbox_intersection_batch(bounds, rays_o, rays_d):
     all_far = np.empty((N_rays))
     for idx, (o, d) in enumerate(zip(rays_o, rays_d)):
         hit, near, far = bbox_intersection(bounds, o, d)
+<<<<<<< HEAD
         all_hit[idx] = hit
         all_near[idx] = near
         all_far[idx] = far
+=======
+        # if hit:
+            # print("hit", hit)
+            # print("near", near)
+            # print("far", far)
+        all_hit[idx] = hit
+        all_near[idx] = near
+        all_far[idx] = far
+        # all_far[idx] = 5* near
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     # return (h*w), (h*w, 3), (h*w, 3)
     return all_hit, all_near, all_far
 

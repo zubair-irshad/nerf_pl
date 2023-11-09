@@ -359,7 +359,11 @@ class BBoxRayHelper:
         )
         bbox_bounds = copy.deepcopy(self.bbox_bounds)
         # if bbox_enlarge > 0:
+<<<<<<< HEAD
         bbox_enlarge = 0.05
+=======
+        bbox_enlarge = 0.04
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         bbox_z_min_orig = bbox_bounds[0][2]
         bbox_bounds[0] -= bbox_enlarge
         bbox_bounds[1] += bbox_enlarge
@@ -399,7 +403,11 @@ class BBoxRayHelper:
         xyz = torch.from_numpy(xyz).float().cuda()
         bbox_bounds = copy.deepcopy(self.bbox_bounds)
 
+<<<<<<< HEAD
         bbox_enlarge = 0.05
+=======
+        bbox_enlarge = 0.04
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         bbox_z_min_orig = bbox_bounds[0][2]
         bbox_bounds[0] -= bbox_enlarge
         bbox_bounds[1] += bbox_enlarge
@@ -444,4 +452,8 @@ def check_in_any_boxes(
         )
     if need_reshape:
         in_bounds = in_bounds.view(N1, N2)
+<<<<<<< HEAD
     return in_bounds
+=======
+    return in_bounds
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0

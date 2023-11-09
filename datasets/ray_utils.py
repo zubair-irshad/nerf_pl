@@ -22,7 +22,10 @@ def bbox_intersection_batch(bounds, rays_o, rays_d):
         hit, near, far = bbox_intersection(bounds, o, d)
         # if hit == True:
         #     print("hit", hit)
+<<<<<<< HEAD
         #     print("near, far", near, far)
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         all_hit[idx] = hit
         all_near[idx] = near
         all_far[idx] = far
@@ -311,6 +314,7 @@ def convert_pose_PD_to_NeRF(C2W):
                          [0,1,0,0],
                          [0,0,0,1]])
     C2W = np.matmul(C2W, flip_axes)
+<<<<<<< HEAD
     return C2W
 
 def get_rays_mvs(H, W, focal, c2w):
@@ -324,3 +328,6 @@ def get_rays_mvs(H, W, focal, c2w):
     rays_d = rays_d.view(-1, 3)
     rays_o = rays_o.view(-1, 3)
     return rays_o, rays_d
+=======
+    return C2W
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0

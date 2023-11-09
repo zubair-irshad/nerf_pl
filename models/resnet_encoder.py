@@ -72,8 +72,13 @@ class MultiHeadImgEncoder(nn.Module):
         num_layers=4,
         shared_layers=3,
         global_size=0,
+<<<<<<< HEAD
         color_size=256,
         density_size=256,
+=======
+        color_size=128,
+        density_size=128,
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         spatials=None,
         norm_type="instance",
         input_dim=3,
@@ -135,7 +140,11 @@ class MultiHeadImgEncoder(nn.Module):
                 head_model.append(nn.Conv2d(spatial_in_size, spatial_out_size, 1))
 
             return nn.Sequential(*head_model)
+<<<<<<< HEAD
         print("sptails", spatials)
+=======
+            
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         if global_size > 0:
             if "global" in spatials:
                 self.global_head = create_head(spatial_in_size=sum(feature_dims[: num_layers + 1]), spatial_out_size=global_size)
@@ -294,6 +303,10 @@ if __name__ == "__main__":
     out = image_encoder(img)
     print("out texture", out["color"].shape)
     print("out shape", out["density"].shape)
+<<<<<<< HEAD
     # print("out", out)
 
 
+=======
+    # print("out", out)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0

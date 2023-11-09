@@ -314,6 +314,7 @@ def rebalance_mask(mask, fg_weight=None, bg_weight=None):
     return balanced_weight
 
 
+<<<<<<< HEAD
 import numpy as np
 import numpy.linalg
 
@@ -386,3 +387,17 @@ def umeyama(P, Q):
 # print "Check:  a1*cR + t = a2  is", np.allclose(a1.dot(c*R) + t, a2)
 # err = ((a1.dot(c * R) + t - a2) ** 2).sum()
 # print "Residual error", err
+=======
+def rebalance_mask_tensor(mask, fg_weight=None, bg_weight=None):
+    if fg_weight is None and bg_weight is None:
+        foreground_cnt = max(mask.sum(), 1)
+        background_cnt = max((~mask).sum(), 1)
+        balanced_weight = np.ones_like(mask).astype(np.float32)
+        balanced_weight[mask] = float(background_cnt) / foreground_cnt
+        balanced_weight[~mask] = float(foreground_cnt) / background_cnt
+    else:
+        balanced_weight = torch.ones_like(mask, dtype=torch.float32)
+        balanced_weight[mask] = fg_weight
+        balanced_weight[~mask] = bg_weight
+    return balanced_weight
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0

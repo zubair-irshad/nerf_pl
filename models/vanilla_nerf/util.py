@@ -16,6 +16,10 @@ def world2camera_viewdirs(w_viewdirs, cam2world, NS):
     viewdirs = torch.matmul(rot[:, None, :3, :3], w_viewdirs.unsqueeze(-1))[..., 0]
     return viewdirs
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 def world2camera(w_xyz, cam2world, NS):
     """Converts the points in world coordinates to camera view.
     :param xyz: points in world coordinates (SB*NV, NC, 3)

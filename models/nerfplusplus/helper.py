@@ -21,6 +21,7 @@ def mse2psnr(x):
     return -10.0 * torch.log(x) / np.log(10)
 
 
+<<<<<<< HEAD
 def sample_rays_in_bbox_list(RTs, rays_o, view_dirs):
     all_R = RTs['R']
     all_T = RTs['T']
@@ -45,6 +46,12 @@ def sample_rays_in_bbox_list(RTs, rays_o, view_dirs):
 def cast_rays(t_vals, origins, directions):
     return origins[..., None, :] + t_vals[..., None] * directions[..., None, :]
 
+=======
+def cast_rays(t_vals, origins, directions):
+    return origins[..., None, :] + t_vals[..., None] * directions[..., None, :]
+
+
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 def sample_along_rays(
     rays_o,
     rays_d,
@@ -54,7 +61,10 @@ def sample_along_rays(
     randomized,
     lindisp,
     in_sphere,
+<<<<<<< HEAD
     far_uncontracted = 3.0
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 ):
     bsz = rays_o.shape[0]
     t_vals = torch.linspace(0.0, 1.0, num_samples + 1, device=rays_o.device)
@@ -65,7 +75,10 @@ def sample_along_rays(
         else:
             t_vals = near * (1.0 - t_vals) + far * t_vals
     else:
+<<<<<<< HEAD
         t_vals_linear = far * (1.0 - t_vals) + far_uncontracted * t_vals
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         t_vals = torch.broadcast_to(t_vals, (bsz, num_samples + 1))
 
     if randomized:
@@ -74,18 +87,24 @@ def sample_along_rays(
         lower = torch.cat([t_vals[..., :1], mids], -1)
         t_rand = torch.rand((bsz, num_samples + 1), device=rays_o.device)
         t_vals = lower + (upper - lower) * t_rand
+<<<<<<< HEAD
 
         mids = 0.5 * (t_vals_linear[..., 1:] + t_vals_linear[..., :-1])
         upper = torch.cat([mids, t_vals_linear[..., -1:]], -1)
         lower = torch.cat([t_vals_linear[..., :1], mids], -1)
         t_rand = torch.rand((bsz, num_samples + 1), device=rays_o.device)
         t_vals_linear = lower + (upper - lower) * t_rand
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     else:
         t_vals = torch.broadcast_to(t_vals, (bsz, num_samples + 1))
 
     if in_sphere:
         coords = cast_rays(t_vals, rays_o, rays_d)
+<<<<<<< HEAD
         return t_vals, coords
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     else:
         t_vals = torch.flip(
             t_vals,
@@ -93,6 +112,7 @@ def sample_along_rays(
                 -1,
             ],
         )  # 1.0 -> 0.0
+<<<<<<< HEAD
         t_vals_linear = torch.flip(
             t_vals_linear,
             dims=[
@@ -147,6 +167,11 @@ def sample_along_rays(
 #         coords = depth2pts_outside(rays_o, rays_d, t_vals)
 
 #     return t_vals, coords
+=======
+        coords = depth2pts_outside(rays_o, rays_d, t_vals)
+
+    return t_vals, coords
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
 
 def pos_enc(x, min_deg, max_deg):
@@ -177,6 +202,7 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_fa
     acc = weights.sum(dim=-1)
 
     if nocs is not None:
+<<<<<<< HEAD
         # weights_nocs = weights.clone()
         # weights_nocs = weights_nocs.detach()
         # comp_nocs = (weights_nocs[..., None] * nocs).sum(dim=-2)
@@ -188,6 +214,11 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, in_sphere, t_fa
             return comp_rgb, acc, weights, bg_lambda, comp_nocs
         # sem_map = (weights * sem_logits.squeeze(-1)).sum(dim=-1)  # [N_rays, num_class]
         # return comp_rgb, acc, weights, bg_lambda, comp_nocs, sem_map
+=======
+        comp_nocs = (weights[..., None] * nocs).sum(dim=-2)
+        sem_map = (weights * sem_logits.squeeze(-1)).sum(dim=-1)  # [N_rays, num_class]
+        return comp_rgb, acc, weights, bg_lambda, comp_nocs, sem_map
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     else:
         if out_depth is not None:
             comp_depth = (weights * t_vals).sum(dim=-1)

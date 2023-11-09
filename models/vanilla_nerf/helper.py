@@ -1,4 +1,8 @@
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 # ------------------------------------------------------------------------------------
 # NeRF-Factory
 # Copyright (c) 2022 POSTECH, KAIST, Kakao Brain Corp. All Rights Reserved.
@@ -64,7 +68,11 @@ def pos_enc(x, min_deg, max_deg):
     return torch.cat([x] + [four_feat], dim=-1)
 
 
+<<<<<<< HEAD
 def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, nocs=None):
+=======
+def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd):
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
     eps = 1e-10
 
@@ -95,11 +103,15 @@ def volumetric_rendering(rgb, density, t_vals, dirs, white_bkgd, nocs=None):
     if white_bkgd:
         comp_rgb = comp_rgb + (1.0 - acc[..., None])
 
+<<<<<<< HEAD
     if nocs is not None:
         comp_nocs = (weights[..., None] * nocs).sum(dim=-2)
         return comp_rgb, acc, weights, comp_nocs
     else:
         return comp_rgb, acc, weights
+=======
+    return comp_rgb, acc, weights
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
 
 def sorted_piecewise_constant_pdf(

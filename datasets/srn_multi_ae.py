@@ -95,6 +95,10 @@ class SRN_Multi_AE():
         self.normalize_img = normalize_image()
         self.encoder_reg = encoder_reg
 
+<<<<<<< HEAD
+=======
+        self.samples_per_epoch = 20000
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         if self.encoder_reg:
             self.shape_codes, self.texture_codes = load_latent_codes_dict(latent_code_path)
 
@@ -117,7 +121,15 @@ class SRN_Multi_AE():
         self.transform = T.ToTensor()
 
     def __len__(self):
+<<<<<<< HEAD
         return self.lenids
+=======
+        if self.splits == 'cars_train':
+            return self.samples_per_epoch
+        else:
+            return self.lenids
+
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
     def load_img(self, img_dir, idxs = []):
 
@@ -133,10 +145,19 @@ class SRN_Multi_AE():
         return img, enc_image, instance_mask, (x1, x2, y1, y2)
     
     def __getitem__(self, idx):
+<<<<<<< HEAD
         obj_id = self.ids[idx]
         if self.train:
             rays_o, view_dirs, rays_d, img, enc_img, radii, instance_mask = self.return_train_data(obj_id)
         elif self.val:
+=======
+        if self.train:
+            train_idx = random.randint(0, len(self.ids) - 1)
+            obj_id = self.ids[train_idx]
+            rays_o, view_dirs, rays_d, img, enc_img, radii, instance_mask = self.return_train_data(obj_id)
+        elif self.val:
+            obj_id = self.ids[idx]
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             rays_o, view_dirs, rays_d, img, enc_img, radii, instance_mask = self.return_val_data(obj_id)
 
         return rays_o, view_dirs, rays_d, img, enc_img, radii, instance_mask
@@ -274,7 +295,10 @@ def collate_lambda_train(batch, model_type, ray_batch_size=1024):
 
 
 def collate_lambda_val(batch, model_type):
+<<<<<<< HEAD
     mask_to_tensor = get_mask_to_tensor()
+=======
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     cam_rays, cam_view_dirs, cam_rays_d, img, enc_img, camera_radii, instance_mask = batch[0]
     h,w,_ = img.shape
     img = Image.fromarray(np.uint8(img))

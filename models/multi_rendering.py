@@ -6,10 +6,18 @@ from einops import rearrange, reduce, repeat
 from typing import List, Dict, Any, Optional
 import numpy as np
 import random
+<<<<<<< HEAD
 from models.nerf_model import ObjectNeRF
 
 from models.rendering import sample_pdf
 from utils.bbox_utils import check_in_any_boxes
+=======
+from models.nerf import ObjectNeRF
+
+from models.rendering import sample_pdf
+# from utils.bbox_utils import check_in_any_boxes
+from utils.bbox_utils_objectron import check_in_any_boxes
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
 
 def inference_from_model(
@@ -21,6 +29,11 @@ def inference_from_model(
     z_vals: torch.Tensor,
     chunk: int,
     instance_id: int,
+<<<<<<< HEAD
+=======
+    bckg_latent = False,
+    disentagled = False
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     # kwargs={},
 ):
     compute_3d_mask = instance_id > 0
@@ -42,6 +55,7 @@ def inference_from_model(
     dir_embedded_ = repeat(dir_embedded, "n1 c -> (n1 n2) c", n2=N_samples_)
     # (N_rays*N_samples_, embed_dir_channels)
     if compute_3d_mask:
+<<<<<<< HEAD
         inst_embedded_ = code_library.embedding_instance(
             torch.ones(
                 (dir_embedded_.shape[0]), dtype=torch.long, device=dir_embedded_.device
@@ -52,6 +66,40 @@ def inference_from_model(
 
     for i in range(0, B, chunk):
         xyz_embedded, inst_voxel_embedded = embedding_xyz(xyz_[i : i + chunk])
+=======
+        if disentagled:
+            inst_embedded_shape = code_library.embedding_instance_shape(
+                torch.ones(
+                    (dir_embedded_.shape[0]), dtype=torch.long, device=dir_embedded_.device
+                )
+                * instance_id
+            )
+            inst_embedded_appearance = code_library.embedding_instance_appearance(
+                torch.ones(
+                    (dir_embedded_.shape[0]), dtype=torch.long, device=dir_embedded_.device
+                )
+                * instance_id
+            )
+            assert dir_embedded_.shape[0] == inst_embedded_shape.shape[0]
+        else:
+            inst_embedded_ = code_library.embedding_instance(
+                torch.ones(
+                    (dir_embedded_.shape[0]), dtype=torch.long, device=dir_embedded_.device
+                )
+                * instance_id
+            )
+            assert dir_embedded_.shape[0] == inst_embedded_.shape[0]
+    
+    if bckg_latent:
+        inst_embedded_bckg = code_library.embedding_backgrounds(
+            (torch.ones((dir_embedded_.shape[0]), dtype=torch.long, device=dir_embedded_.device)* instance_id+1)[0]
+        ).unsqueeze(0)
+        bckg_codes, _ = model.sample_local_latents(inst_embedded_bckg, xyz.unsqueeze(0))
+        
+
+    for i in range(0, B, chunk):
+        xyz_embedded = embedding_xyz(xyz_[i : i + chunk])
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         # xyz_embedded[zero_mask_repeat[i : i + chunk], :] = 0
 
         # xyzdir_embedded = torch.cat([xyz_embedded, dir_embedded_[i : i + chunk]], 1)
@@ -60,12 +108,26 @@ def inference_from_model(
             "emb_dir": dir_embedded_[i : i + chunk],
         }
         if compute_3d_mask:
+<<<<<<< HEAD
             input_dict["obj_code"] = inst_embedded_[i : i + chunk]
             input_dict["obj_voxel"] = inst_voxel_embedded
+=======
+            if disentagled:
+                input_dict["obj_code_shape"] = inst_embedded_shape[i : i + chunk]
+                input_dict["obj_code_appearance"] = inst_embedded_appearance[i : i + chunk]
+            else:
+                input_dict["obj_code"] = inst_embedded_[i : i + chunk]
+            # input_dict["obj_voxel"] = inst_voxel_embedded
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             output = model.forward_instance(input_dict)
             mask_3d_instance_chunk += [output["inst_sigma"]]
             instance_rgb_chunk += [output["inst_rgb"]]
         else:
+<<<<<<< HEAD
+=======
+            if bckg_latent:
+                input_dict["bckg_code"] = bckg_codes[i : i + chunk]
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             output = model(input_dict, sigma_only=False)
             out_rgb_chunks += [output["rgb"]]
             out_sigma_chunks += [output["sigma"]]
@@ -101,6 +163,10 @@ def volume_rendering_multi(
     noise_std: float,
     white_back: bool,
     obj_ids_list: list = None,
+<<<<<<< HEAD
+=======
+    bckg_img = None 
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 ):
     N_objs = len(z_vals_list)
     # order via z_vals
@@ -150,7 +216,21 @@ def volume_rendering_multi(
     depth_map = reduce(weights * z_vals, "n1 n2 -> n1", "sum")
 
     if white_back:
+<<<<<<< HEAD
         rgb_map = rgb_map + 1 - weights_sum.unsqueeze(-1)
+=======
+        print("weights_sum", weights_sum.shape)
+        print("rgb_map", rgb_map.shape)
+        print("weights_sum", weights_sum)
+        if bckg_img is not None:
+            bckg_img = bckg_img.to(rgbs.device)
+            rgb_map = rgb_map + bckg_img*(1 - weights_sum.unsqueeze(-1))
+        else:
+            rgb_map = rgb_map + 1 - weights_sum.unsqueeze(-1)
+
+    # if white_back:
+    #     rgb_map = rgb_map + 1 - weights_sum.unsqueeze(-1)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
     results[f"rgb_{typ}"] = rgb_map
     results[f"depth_{typ}"] = depth_map
@@ -170,13 +250,29 @@ def render_rays_multi(
     chunk: int = 1024 * 32,
     white_back: bool = False,
     background_skip_bbox: Dict[str, Any] = None,  # skip rays inside the bbox
+<<<<<<< HEAD
     # **kwargs,
 ):
 
+=======
+    c2w=None, 
+    pose_delta=None,
+    bckg_img = None,
+    bckg_latent = False,
+    disentagled = False
+    # **kwargs,
+):
+    print("bckg_latent,disentagled", bckg_latent,disentagled  )
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     embedding_xyz, embedding_dir = embeddings["xyz"], embeddings["dir"]
 
     assert len(rays_list) == len(obj_instance_ids)
 
+<<<<<<< HEAD
+=======
+    # for i in range(len(rays_list)):
+    #     print(rays_list[i].shape)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
     z_vals_list = []
     xyz_coarse_list = []
     dir_embedded_list = []
@@ -203,15 +299,31 @@ def render_rays_multi(
 
         # Sample depth points
         z_steps = torch.linspace(0, 1, N_samples, device=rays.device)  # (N_samples)
+<<<<<<< HEAD
         if not use_disp:  # use linear sampling in depth space
             z_vals = near * (1 - z_steps) + far * z_steps
         else:  # use linear sampling in disparity space
             z_vals = 1 / (1 / near * (1 - z_steps) + 1 / far * z_steps)
+=======
+        # use_disp = False
+        if not use_disp:  # use linear sampling in depth space
+            z_vals = near * (1 - z_steps) + far * z_steps
+            # print("near, far", near, far)
+            # print("z_vals", z_vals)
+        else:  # use linear sampling in disparity space
+            z_vals = 1 / (1 / near * (1 - z_steps) + 1 / far * z_steps)
+            # print("near, far", near, far)
+            # print("z_vals", z_vals)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
         z_vals = z_vals.expand(N_rays, N_samples)
 
         xyz_coarse = rays_o + rays_d * rearrange(z_vals, "n1 n2 -> n1 n2 1")
+<<<<<<< HEAD
 
+=======
+        # print("xyz_coarse", xyz_coarse)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         # save for each rays batch
         xyz_coarse_list += [xyz_coarse]
         z_vals_list += [z_vals]
@@ -231,12 +343,207 @@ def render_rays_multi(
             z_vals=z_vals_list[i],
             chunk=chunk,
             instance_id=obj_instance_ids[i],
+<<<<<<< HEAD
+=======
+            bckg_latent = bckg_latent,
+            disentagled = disentagled
             # kwargs,
         )
 
         # mute in bound samples to remove objects
         if obj_instance_ids[i] == 0 and background_skip_bbox is not None:
+            # in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_coarse_list[i], c2w=c2w, pose_delta=pose_delta)
+            in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_coarse_list[i], canonical_rays = True)
+            sigmas[in_bound_mask] = -1e5
+
+        rgbs_list += [rgbs]
+        sigmas_list += [sigmas]
+        obj_ids_list += [torch.ones_like(sigmas) * i]
+
+    results = {}
+    volume_rendering_multi(
+        results,
+        "coarse",
+        z_vals_list,
+        rgbs_list,
+        sigmas_list,
+        noise_std,
+        white_back,
+        obj_ids_list,
+        bckg_img
+    )
+
+    if N_importance > 0:  # sample points for fine model
+        rgbs_list = []
+        sigmas_list = []
+        z_vals_fine_list = []
+        for i in range(len(rays_list)):
+            z_vals = z_vals_list[i]
+            z_vals_mid = 0.5 * (
+                z_vals[:, :-1] + z_vals[:, 1:]
+            )  # (N_rays, N_samples-1) interval mid points
+            # recover weights according to z_vals from results
+            weights_ = results["weights_coarse"][results["obj_ids_coarse"] == i]
+            assert weights_.numel() == N_rays * N_samples
+            weights_ = rearrange(weights_, "(n1 n2) -> n1 n2", n1=N_rays, n2=N_samples)
+            z_vals_ = sample_pdf(
+                z_vals_mid, weights_[:, 1:-1].detach(), N_importance, det=(perturb == 0)
+            )
+
+            z_vals = torch.sort(torch.cat([z_vals, z_vals_], -1), -1)[0]
+
+            # if we have ray mask (e.g. bbox), we clip z values
+            rays = rays_list[i]
+            if rays.shape[1] == 10:
+                bbox_mask_near, bbox_mask_far = rays[:, 8:9], rays[:, 9:10]
+                z_val_mask = torch.logical_and(
+                    z_vals > bbox_mask_near, z_vals < bbox_mask_far
+                )
+                z_vals[z_val_mask] = bbox_mask_far.repeat(1, z_vals.shape[1])[
+                    z_val_mask
+                ]
+
+            # combine coarse and fine samples
+            z_vals_fine_list += [z_vals]
+
+            xyz_fine = rays_o_list[i] + rays_d_list[i] * rearrange(
+                z_vals, "n1 n2 -> n1 n2 1"
+            )
+
+            rgbs, sigmas = inference_from_model(
+                model=models["fine"],
+                embedding_xyz=embedding_xyz,
+                dir_embedded=dir_embedded_list[i],
+                code_library=code_library,
+                xyz=xyz_fine,
+                z_vals=z_vals_fine_list[i],
+                chunk=chunk,
+                instance_id=obj_instance_ids[i],
+                bckg_latent = bckg_latent,
+                disentagled = disentagled
+                # kwargs,
+            )
+
+            # mute in bound samples to remove objects
+            if obj_instance_ids[i] == 0 and background_skip_bbox is not None:
+                # print("c2w2", c2w.shape)
+                # in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_fine, c2w=c2w, pose_delta=pose_delta)
+                in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_fine, canonical_rays= True)
+                sigmas[in_bound_mask] = -1e5
+
+            rgbs_list += [rgbs]
+            sigmas_list += [sigmas]
+
+        volume_rendering_multi(
+            results,
+            "fine",
+            z_vals_fine_list,
+            rgbs_list,
+            sigmas_list,
+            noise_std,
+            white_back,
+            bckg_img
+        )
+    return results
+
+def render_rays_multi_cat(
+    models: Dict[str, ObjectNeRF],
+    embeddings: Dict[str, torch.nn.Module],
+    code_library: torch.nn.Module,
+    rays_list: list,
+    obj_instance_ids: list,
+    N_samples: int = 64,
+    use_disp: bool = False,
+    perturb: float = 0,
+    noise_std: float = 0,
+    N_importance: int = 0,
+    chunk: int = 1024 * 32,
+    white_back: bool = False,
+    background_skip_bbox: Dict[str, Any] = None,  # skip rays inside the bbox
+    c2w=None, 
+    pose_delta=None
+    # **kwargs,
+):
+    
+
+    assert len(rays_list) == len(obj_instance_ids)
+
+    # for i in range(len(rays_list)):
+    #     print(rays_list[i].shape)
+    z_vals_list = []
+    xyz_coarse_list = []
+    dir_embedded_list = []
+    rays_o_list = []
+    rays_d_list = []
+    embedding_xyz = []
+
+    for idx, rays in enumerate(rays_list):
+        embedding_xyz.append(embeddings[idx]["xyz"])
+        embedding_dir = embeddings[idx]["dir"]
+        # Decompose the inputs
+        N_rays = rays.shape[0]
+        rays_o, rays_d = rays[:, 0:3], rays[:, 3:6]  # both (N_rays, 3)
+        near, far = rays[:, 6:7], rays[:, 7:8]  # both (N_rays, 1)
+
+        # Embed direction
+        dir_embedded = embedding_dir(rays_d)  # (N_rays, embed_dir_channels)
+
+        rays_o = rearrange(rays_o, "n1 c -> n1 1 c")
+        rays_d = rearrange(rays_d, "n1 c -> n1 1 c")
+
+        # compute intersection to update near and far
+        # near, far = embedding_xyz.ray_box_intersection(rays_o, rays_d, near, far)
+
+        rays_o_list += [rays_o]
+        rays_d_list += [rays_d]
+
+        # Sample depth points
+        z_steps = torch.linspace(0, 1, N_samples, device=rays.device)  # (N_samples)
+        # use_disp = False
+        if not use_disp:  # use linear sampling in depth space
+            z_vals = near * (1 - z_steps) + far * z_steps
+            # print("near, far", near, far)
+            # print("z_vals", z_vals)
+        else:  # use linear sampling in disparity space
+            z_vals = 1 / (1 / near * (1 - z_steps) + 1 / far * z_steps)
+            # print("near, far", near, far)
+            # print("z_vals", z_vals)
+
+        z_vals = z_vals.expand(N_rays, N_samples)
+
+        xyz_coarse = rays_o + rays_d * rearrange(z_vals, "n1 n2 -> n1 n2 1")
+        # print("xyz_coarse", xyz_coarse)
+        # save for each rays batch
+        xyz_coarse_list += [xyz_coarse]
+        z_vals_list += [z_vals]
+        dir_embedded_list += [dir_embedded]
+
+    # inference for each objects
+    rgbs_list = []
+    sigmas_list = []
+    obj_ids_list = []
+    for i in range(len(rays_list)):
+        rgbs, sigmas = inference_from_model(
+            model=models[i]["coarse"],
+            embedding_xyz=embedding_xyz[i],
+            dir_embedded=dir_embedded_list[i],
+            code_library=code_library[i],
+            xyz=xyz_coarse_list[i],
+            z_vals=z_vals_list[i],
+            chunk=chunk,
+            instance_id=obj_instance_ids[i],
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
+            # kwargs,
+        )
+
+        # mute in bound samples to remove objects
+        if obj_instance_ids[i] == 0 and background_skip_bbox is not None:
+<<<<<<< HEAD
             in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_coarse_list[i])
+=======
+            # in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_coarse_list[i], c2w=c2w, pose_delta=pose_delta)
+            in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_coarse_list[i], canonical_rays = True)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             sigmas[in_bound_mask] = -1e5
 
         rgbs_list += [rgbs]
@@ -306,7 +613,13 @@ def render_rays_multi(
 
             # mute in bound samples to remove objects
             if obj_instance_ids[i] == 0 and background_skip_bbox is not None:
+<<<<<<< HEAD
                 in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_fine)
+=======
+                # print("c2w2", c2w.shape)
+                # in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_fine, c2w=c2w, pose_delta=pose_delta)
+                in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_fine, canonical_rays= True)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
                 sigmas[in_bound_mask] = -1e5
 
             rgbs_list += [rgbs]
@@ -322,3 +635,187 @@ def render_rays_multi(
             white_back,
         )
     return results
+<<<<<<< HEAD
+=======
+
+def render_rays_multi_mixed_reality(
+    models: Dict[str, ObjectNeRF],
+    embeddings: Dict[str, torch.nn.Module],
+    code_library: torch.nn.Module,
+    rays_list: list,
+    obj_instance_ids: list,
+    N_samples: int = 64,
+    use_disp: bool = False,
+    perturb: float = 0,
+    noise_std: float = 0,
+    N_importance: int = 0,
+    chunk: int = 1024 * 32,
+    white_back: bool = False,
+    background_skip_bbox: Dict[str, Any] = None,  # skip rays inside the bbox
+    c2w=None, 
+    pose_delta=None,
+    bckg_img = None
+    # **kwargs,
+):
+    embedding_xyz, embedding_dir = embeddings["xyz"], embeddings["dir"]
+
+    assert len(rays_list) == len(obj_instance_ids)
+
+    # for i in range(len(rays_list)):
+    #     print(rays_list[i].shape)
+    z_vals_list = []
+    xyz_coarse_list = []
+    dir_embedded_list = []
+    rays_o_list = []
+    rays_d_list = []
+
+    for idx, rays in enumerate(rays_list):
+        # Decompose the inputs
+        N_rays = rays.shape[0]
+        rays_o, rays_d = rays[:, 0:3], rays[:, 3:6]  # both (N_rays, 3)
+        near, far = rays[:, 6:7], rays[:, 7:8]  # both (N_rays, 1)
+
+        # Embed direction
+        dir_embedded = embedding_dir(rays_d)  # (N_rays, embed_dir_channels)
+
+        rays_o = rearrange(rays_o, "n1 c -> n1 1 c")
+        rays_d = rearrange(rays_d, "n1 c -> n1 1 c")
+
+        # compute intersection to update near and far
+        # near, far = embedding_xyz.ray_box_intersection(rays_o, rays_d, near, far)
+
+        rays_o_list += [rays_o]
+        rays_d_list += [rays_d]
+
+        # Sample depth points
+        z_steps = torch.linspace(0, 1, N_samples, device=rays.device)  # (N_samples)
+        # use_disp = False
+        if not use_disp:  # use linear sampling in depth space
+            z_vals = near * (1 - z_steps) + far * z_steps
+            # print("near, far", near, far)
+            # print("z_vals", z_vals)
+        else:  # use linear sampling in disparity space
+            z_vals = 1 / (1 / near * (1 - z_steps) + 1 / far * z_steps)
+            # print("near, far", near, far)
+            # print("z_vals", z_vals)
+
+        z_vals = z_vals.expand(N_rays, N_samples)
+
+        xyz_coarse = rays_o + rays_d * rearrange(z_vals, "n1 n2 -> n1 n2 1")
+        # print("xyz_coarse", xyz_coarse)
+        # save for each rays batch
+        xyz_coarse_list += [xyz_coarse]
+        z_vals_list += [z_vals]
+        dir_embedded_list += [dir_embedded]
+
+    # inference for each objects
+    rgbs_list = []
+    sigmas_list = []
+    obj_ids_list = []
+    for i in range(len(rays_list)):
+        rgbs, sigmas = inference_from_model(
+            model=models["coarse"],
+            embedding_xyz=embedding_xyz,
+            dir_embedded=dir_embedded_list[i],
+            code_library=code_library,
+            xyz=xyz_coarse_list[i],
+            z_vals=z_vals_list[i],
+            chunk=chunk,
+            instance_id=obj_instance_ids[i],
+            # kwargs,
+        )
+
+        # mute in bound samples to remove objects
+        if obj_instance_ids[i] == 0 and background_skip_bbox is not None:
+            # in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_coarse_list[i], c2w=c2w, pose_delta=pose_delta)
+            in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_coarse_list[i], canonical_rays = True)
+            sigmas[in_bound_mask] = -1e5
+
+        rgbs_list += [rgbs]
+        sigmas_list += [sigmas]
+        obj_ids_list += [torch.ones_like(sigmas) * i]
+
+    results = {}
+    volume_rendering_multi(
+        results,
+        "coarse",
+        z_vals_list,
+        rgbs_list,
+        sigmas_list,
+        noise_std,
+        white_back,
+        obj_ids_list,
+        bckg_img
+    )
+
+    if N_importance > 0:  # sample points for fine model
+        rgbs_list = []
+        sigmas_list = []
+        z_vals_fine_list = []
+        for i in range(len(rays_list)):
+            z_vals = z_vals_list[i]
+            z_vals_mid = 0.5 * (
+                z_vals[:, :-1] + z_vals[:, 1:]
+            )  # (N_rays, N_samples-1) interval mid points
+            # recover weights according to z_vals from results
+            weights_ = results["weights_coarse"][results["obj_ids_coarse"] == i]
+            assert weights_.numel() == N_rays * N_samples
+            weights_ = rearrange(weights_, "(n1 n2) -> n1 n2", n1=N_rays, n2=N_samples)
+            z_vals_ = sample_pdf(
+                z_vals_mid, weights_[:, 1:-1].detach(), N_importance, det=(perturb == 0)
+            )
+
+            z_vals = torch.sort(torch.cat([z_vals, z_vals_], -1), -1)[0]
+
+            # if we have ray mask (e.g. bbox), we clip z values
+            rays = rays_list[i]
+            if rays.shape[1] == 10:
+                bbox_mask_near, bbox_mask_far = rays[:, 8:9], rays[:, 9:10]
+                z_val_mask = torch.logical_and(
+                    z_vals > bbox_mask_near, z_vals < bbox_mask_far
+                )
+                z_vals[z_val_mask] = bbox_mask_far.repeat(1, z_vals.shape[1])[
+                    z_val_mask
+                ]
+
+            # combine coarse and fine samples
+            z_vals_fine_list += [z_vals]
+
+            xyz_fine = rays_o_list[i] + rays_d_list[i] * rearrange(
+                z_vals, "n1 n2 -> n1 n2 1"
+            )
+
+            rgbs, sigmas = inference_from_model(
+                model=models["fine"],
+                embedding_xyz=embedding_xyz,
+                dir_embedded=dir_embedded_list[i],
+                code_library=code_library,
+                xyz=xyz_fine,
+                z_vals=z_vals_fine_list[i],
+                chunk=chunk,
+                instance_id=obj_instance_ids[i],
+                # kwargs,
+            )
+
+            # mute in bound samples to remove objects
+            if obj_instance_ids[i] == 0 and background_skip_bbox is not None:
+                # print("c2w2", c2w.shape)
+                # in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_fine, c2w=c2w, pose_delta=pose_delta)
+                in_bound_mask = check_in_any_boxes(background_skip_bbox, xyz_fine, canonical_rays= True)
+                sigmas[in_bound_mask] = -1e5
+
+            rgbs_list += [rgbs]
+            sigmas_list += [sigmas]
+
+        volume_rendering_multi(
+            results,
+            "fine",
+            z_vals_fine_list,
+            rgbs_list,
+            sigmas_list,
+            noise_std,
+            white_back,
+            bckg_img
+        )
+    return results
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0

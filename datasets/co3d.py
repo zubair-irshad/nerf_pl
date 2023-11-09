@@ -8,12 +8,178 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+<<<<<<< HEAD
 code_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 sys.path.append(os.path.join(code_dir, "3rdparty/co3d"))
 
 from datasets.co3d_dataset import Co3dDataset as Co3dData
 from datasets.camera import PerspectiveCamera
 from datasets.ray_utils import homogenise_torch
+=======
+# code_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+# sys.path.append(os.path.join(code_dir, "3rdparty/co3d"))
+
+from datasets.co3d_dataset import Co3dDataset as Co3dData
+from datasets.camera import PerspectiveCamera
+from datasets.ray_utils import *
+import torchvision.transforms as T
+
+from datasets.nocs_utils import rebalance_mask_tensor
+
+import os
+import sys
+
+import numpy as np
+import torch
+
+
+class CO3D_Instance(torch.utils.data.Dataset):
+    def __init__(self, data_dir, category, instance, downsample_factor = 4, split = 'train'):
+        self.ds = Dataset(data_dir = data_dir, category = category, instance = instance)
+        self.cameras = self.ds.get_cameras()
+        self.near = 0.2
+        self.far = 30.0
+        self.all_rays = []
+        self.all_rgbs = []
+        self.all_instance_masks = []
+        self.all_instance_masks_weight = []
+        self.all_instance_ids = []
+        
+        self.split = split
+        self.downsample_factor = downsample_factor
+        self.white_back = False
+
+        size = self.ds.size
+        self.scale_factor = np.max(size)
+        self.all_c2w = []
+        for i, camera in enumerate(self.cameras):
+            c2w = camera.get_pose_matrix().squeeze().cpu().numpy().copy()
+            c2w[:3,3] /= self.scale_factor
+            c2w = self.convert_pose(c2w)
+            self.all_c2w.append(c2w)
+            K = camera.get_intrinsics().squeeze().cpu().numpy()
+            H, W = camera.get_image_size()[0].cpu().numpy()
+            img_size = (H,W)
+            H_new, W_new = int(H/self.downsample_factor), int(W/self.downsample_factor)
+            focal = K[0,0]
+            focal *=(H_new/H)
+
+            directions = get_ray_directions(H_new, W_new, focal) # (h, w, 3)
+            c2w = torch.FloatTensor(c2w)[:3, :4]
+            rays_o, rays_d = get_rays(directions, c2w)
+            
+            img = self.ds.images[i]
+            resize_transform = T.Resize((H_new, W_new), antialias=True)
+            img = resize_transform(img.permute(2,0,1))
+            img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+
+            instance_mask = self.ds.co3d_masks[i]
+            instance_mask = resize_transform(instance_mask)
+            instance_mask = (instance_mask>0).squeeze(0)
+            instance_mask_weight = rebalance_mask_tensor(
+                instance_mask,
+                fg_weight=1.0,
+                bg_weight=0.05,
+            )
+            #print("instance_mask, instance_mask_weight", instance_mask.shape, instance_mask_weight.shape)
+            instance_mask = instance_mask.view(-1)
+            instance_mask_weight = instance_mask_weight.view(-1)
+            instance_ids = torch.ones_like(instance_mask).long() * 1
+
+            self.all_rays += [torch.cat([rays_o, rays_d, 
+                            self.near*torch.ones_like(rays_o[:, :1]),
+                            self.far*torch.ones_like(rays_o[:, :1])],
+                            1)] # (h*w, 8)
+            self.all_rgbs += [img]
+            self.all_instance_masks +=[instance_mask]
+            self.all_instance_masks_weight +=[instance_mask_weight]
+            self.all_instance_ids +=[instance_ids]
+
+        self.all_rays = torch.cat(self.all_rays, 0) # (len(self.meta['frames])*h*w, 3)
+        self.all_rgbs = torch.cat(self.all_rgbs, 0)
+        self.all_instance_masks = torch.cat(self.all_instance_masks, 0) # (len(self.meta['frames])*h*w, 3)
+        self.all_instance_masks_weight = torch.cat(self.all_instance_masks_weight, 0) # (len(self.meta['frames])*h*w, 3)
+        self.all_instance_ids = torch.cat(self.all_instance_ids, 0) # (len(self.meta['frames])*h*w, 3)
+
+
+    def convert_pose(self, C2W):
+        flip_yz = np.eye(4)
+        flip_yz[1, 1] = -1
+        flip_yz[2, 2] = -1
+        C2W = np.matmul(C2W, flip_yz)
+        return C2W
+
+    def __len__(self):
+        if self.split == 'train':
+            return len(self.all_rays)
+        if self.split == 'val':
+            return 1 # only validate 1 image
+
+    def ray_idx_to_img_ray(self, idx):
+        for i, num in enumerate(self.num_rays):
+            if idx < num:
+                return i, idx
+            idx -= num
+        assert False
+
+    def __getitem__(self, idx):
+        if self.split == 'train': # use data in the buffers
+            sample = {
+                "rays": self.all_rays[idx],
+                "rgbs": self.all_rgbs[idx],
+                "instance_mask": self.all_instance_masks[idx],
+                "instance_mask_weight": self.all_instance_masks_weight[idx],
+                "instance_ids": self.all_instance_ids[idx]
+            }
+        else:
+            camera = self.cameras[idx]
+            # c2w = camera.get_pose_matrix().squeeze().cpu().numpy().copy()
+            # c2w[:3,3] /=self.scale_factor
+            # c2w = self.convert_pose(c2w)
+            c2w = self.all_c2w[idx]
+            K = camera.get_intrinsics().squeeze().cpu().numpy()
+            H, W = camera.get_image_size()[0].cpu().numpy()
+            img_size = (H,W)
+            H_new, W_new = int(H/self.downsample_factor), int(W/self.downsample_factor)
+            focal = K[0,0]
+            focal *=(H_new/H)
+
+            directions = get_ray_directions(H_new, W_new, focal) # (h, w, 3)
+            c2w = torch.FloatTensor(c2w)[:3, :4]
+            rays_o, rays_d = get_rays(directions, c2w)
+            
+            img = self.ds.images[idx]
+            resize_transform = T.Resize((H_new, W_new), antialias=True)
+            img = resize_transform(img.permute(2,0,1))
+            img = img.view(3, -1).permute(1, 0) # (h*w, 3) RGBA
+
+            instance_mask = self.ds.co3d_masks[idx]
+            instance_mask = resize_transform(instance_mask)
+            instance_mask = (instance_mask>0).squeeze(0)
+            instance_mask_weight = rebalance_mask_tensor(
+                instance_mask,
+                fg_weight=1.0,
+                bg_weight=0.05,
+            )
+            #print("instance_mask, instance_mask_weight", instance_mask.shape, instance_mask_weight.shape)
+            instance_mask = instance_mask.view(-1)
+            instance_mask_weight = instance_mask_weight.view(-1)
+            instance_ids = torch.ones_like(instance_mask).long() * 1
+
+            rays = torch.cat([rays_o, rays_d, 
+                            self.near*torch.ones_like(rays_o[:, :1]),
+                            self.far*torch.ones_like(rays_o[:, :1])],
+                            1) # (h*w, 8)
+            sample = {
+                "rays": rays,
+                "rgbs": img,
+                "instance_mask": instance_mask,
+                "instance_mask_weight": instance_mask_weight,
+                "instance_ids": instance_ids,
+                "img_wh": (W_new, H_new)
+            }
+        return sample
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
 
 
 def to_global_path(path):
@@ -70,10 +236,16 @@ def load_auto_bbox_scale(data_dir, category, instance, margin_scale, apply_scali
 class Dataset:
     def __init__(self, data_dir,category, instance, split="train",
                 use_auto_box=True, scaling_factor= 0.8, apply_scaling = False, 
+<<<<<<< HEAD
                 other=None, device='cuda'):
         super(Dataset, self).__init__()
         print('Load data: Begin')
         self.device = torch.device(device)
+=======
+                other=None):
+        super(Dataset, self).__init__()
+        print('Load data: Begin')
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         # self.cfg = cfg
 
         if other is not None:
@@ -119,7 +291,11 @@ class Dataset:
             mask = torch.cat([pts >= bbox_min, pts <= bbox_max], dim=1)
             mask = torch.all(mask, dim=-1)
 
+<<<<<<< HEAD
             self.point_cloud_xyz_canonical = pts[mask].to(self.device)
+=======
+            # self.point_cloud_xyz_canonical = pts[mask].to(self.device)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
         else:
             scale_obj = None
             object_bbox_min = np.array([-1.01, -1.01, -1.01])
@@ -153,7 +329,11 @@ class Dataset:
             new_cam = PerspectiveCamera.from_pytorch3d(cam, img.shape[1:])
             if scale_obj is not None:
                 new_cam = new_cam.left_transformed(scale_obj)
+<<<<<<< HEAD
             new_cam.to(self.device)
+=======
+            # new_cam.to(self.device)
+>>>>>>> 07e8a30f4c8670d06f3ae05f4394db30bff09ab0
             self.cameras.append(new_cam)
         
         # if cfg.trainval_split:
